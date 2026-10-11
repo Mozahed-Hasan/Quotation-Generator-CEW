@@ -354,7 +354,8 @@ export default function Home() {
         '"To Bank / Account"',
         '"Bill Amount (BDT)"',
         '"Paid Amount (BDT)"',
-        '"Running Balance (BDT)"'
+        '"Running Balance (BDT)"',
+        '"Note"'
       ]
     ];
 
@@ -369,7 +370,8 @@ export default function Home() {
         `"${r.to_bank || "-"}"`,
         r.type === "bill" ? fmtNum(r.amount) : "0.00",
         r.type === "payment" ? fmtNum(r.amount) : "0.00",
-        fmtNum(r.balance)
+        fmtNum(r.balance),
+        `"${(r.note || "").replace(/"/g, '""')}"`
       ]);
     });
 
@@ -384,7 +386,8 @@ export default function Home() {
       '"TOTAL SUMMARY:"',
       fmtNum(totalBill),
       fmtNum(totalPaid),
-      fmtNum(balance)
+      fmtNum(balance),
+      '""'
     ]);
 
     const csvContent = "\uFEFF" + csvRows.map((e) => e.join(",")).join("\r\n");
