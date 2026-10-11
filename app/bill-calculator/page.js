@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { generateBillPdf } from "@/lib/billPdf";
 
 // SVG Icons
 function UserIcon({ size = 18 }) {
@@ -386,6 +387,30 @@ export default function Home() {
     document.body.removeChild(link);
   }
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  async function downloadPdf() {
+    if (!selectedClient) return;
+    if (view.length === 0) {
+      alert("এই ক্লায়েন্টের কোনো লেনদেন ডেটা নেই");
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      await generateBillPdf({
+        clientName: selectedClient,
+        view,
+        totalBill,
+        totalPaid,
+        balance,
+      });
+    } catch (e) {
+      alert("PDF তৈরি করতে সমস্যা হয়েছে: " + e.message);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   function printStatement() {
     window.print();
   }
@@ -394,6 +419,36 @@ export default function Home() {
 
   return (
     <main className="wrap">
+      {/* Printable CEW Header Pad (Displays ONLY during browser printing) */}
+      <div className="print-letterhead-header">
+        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/cew-icon.png" alt="CEW" style={{ width: "65px", height: "65px", objectFit: "contain" }} />
+          <div>
+            <h2 style={{ fontSize: "17pt", fontWeight: "bold", margin: 0, color: "#991b1b" }}>Chowdhury Engineering Works</h2>
+            <p style={{ fontSize: "9pt", margin: "2px 0", color: "#334155" }}>39 No Ward, Haidarabad, Tongi, Gazipur. | Contact: 01959404040, 01932-505050</p>
+          </div>
+        </div>
+        <hr style={{ margin: "10px 0 14px 0", borderTop: "2px solid #b91c1c", borderBottom: "none" }} />
+        {selectedClient && (
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "10pt" }}>
+            <div>
+              <p style={{ margin: "2px 0" }}><strong>ডিলার / ক্লায়েন্ট:</strong> {selectedClient}</p>
+              <p style={{ margin: "2px 0", color: "#475569" }}>ডিলার লেনদেন ও বিল হিসাব স্টেটমেন্ট</p>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <p style={{ margin: "2px 0" }}><strong>তারিখ:</strong> {today()}</p>
+              <p style={{ margin: "2px 0", color: "#475569" }}><strong>রেফারেন্স:</strong> CEW-STMT-{today().replace(/-/g, "")}</p>
+            </div>
+          </div>
+        )}
+        <div style={{ textAlign: "center", marginBottom: "14px" }}>
+          <span style={{ fontSize: "13pt", fontWeight: "bold", borderBottom: "1.5px solid #000", paddingBottom: "2px", letterSpacing: "0.5px" }}>
+            DEALER ACCOUNT STATEMENT / ডিলার হিসাব বিবরণী
+          </span>
+        </div>
+      </div>
+
       {/* Header */}
       <header className="top">
         <div>
@@ -540,19 +595,28 @@ export default function Home() {
             <div className="active-client-banner-actions">
               <button
                 type="button"
-                className="btn-download-csv"
-                onClick={downloadClientData}
-                title="এই ডিলারের সম্পূর্ণ হিসাব এক্সেলে ডাউনলোড করুন"
+                className="btn-download-pdf"
+                onClick={downloadPdf}
+                disabled={pdfBusy}
+                title="CEW অফিসিয়াল প্যাড লেটারহেডে সুন্দর PDF ডাউনলোড করুন"
               >
-                <DownloadIcon /> Excel / CSV ডাউনলোড
+                <FileTextIcon /> {pdfBusy ? "তৈরি হচ্ছে..." : "PDF ডাউনলোড"}
               </button>
               <button
                 type="button"
                 className="btn-print"
                 onClick={printStatement}
-                title="প্রিন্ট বা PDF হিসেবে সংরক্ষণ করুন"
+                title="প্রিন্ট করুন"
               >
-                <PrinterIcon /> প্রিন্ট / PDF
+                <PrinterIcon /> প্রিন্ট
+              </button>
+              <button
+                type="button"
+                className="btn-download-csv"
+                onClick={downloadClientData}
+                title="এই ডিলারের সম্পূর্ণ হিসাব এক্সেলে ডাউনলোড করুন"
+              >
+                <DownloadIcon /> Excel
               </button>
               <button
                 type="button"
@@ -882,6 +946,18 @@ export default function Home() {
                   {selectedClient} - এর জন্য এখনো কোনো লেনদেন এন্ট্রি করা হয়নি
                 </p>
               )}
+            </div>
+            {/* Signature Row for Printed Output */}
+            <div className="print-signature-row">
+              <div className="print-sig-col">
+                <div className="print-sig-line" />
+                <p>প্রস্তুতকারক (Prepared By)</p>
+              </div>
+              <div className="print-sig-col" style={{ textAlign: "right" }}>
+                <div className="print-sig-line" style={{ marginLeft: "auto" }} />
+                <p>অনুমোদিত স্বাক্ষর (Authorized Signature)</p>
+                <p style={{ fontWeight: "bold", marginTop: "2px" }}>Chowdhury Engineering Works</p>
+              </div>
             </div>
           </section>
         </>
