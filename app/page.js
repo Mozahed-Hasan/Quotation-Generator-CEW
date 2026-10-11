@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { COMPANY } from "@/lib/company";
 import { generatePdf } from "@/lib/pdf";
 import { takaInWords } from "@/lib/words";
@@ -187,17 +188,29 @@ export default function Home() {
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          id="fillDemo"
-          onClick={fillDemo}
-          className="btn btn-ghost ml-auto shadow-sm ring-1 ring-brand-200 hover:ring-brand-300"
-        >
-          <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
-          <span className="text-xs sm:text-sm">Fill Demo Data</span>
-        </button>
+        <div className="flex items-center gap-2 ml-auto">
+          <Link
+            href="/bill-calculator"
+            className="btn btn-ghost shadow-sm ring-1 ring-slate-200 hover:ring-brand-300 text-slate-700 hover:text-brand-700 transition"
+            title="ডিলার বিল ক্যালকুলেটর"
+          >
+            <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+            <span className="text-xs sm:text-sm font-medium">বিল ক্যালকুলেটর</span>
+          </Link>
+          <button
+            type="button"
+            id="fillDemo"
+            onClick={fillDemo}
+            className="btn btn-ghost shadow-sm ring-1 ring-brand-200 hover:ring-brand-300"
+          >
+            <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span className="text-xs sm:text-sm">Fill Demo Data</span>
+          </button>
+        </div>
       </header>
 
       <form onSubmit={submit} className="space-y-4 sm:space-y-6" autoComplete="off">
