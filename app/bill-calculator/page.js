@@ -327,61 +327,73 @@ export default function Home() {
     router.refresh();
   }
 
-  // Download selected client data as CSV
+  // Download selected client data as cleanly structured English Excel / CSV file
   function downloadClientData() {
     if (!selectedClient) return;
     if (view.length === 0) {
-      alert("এই ক্লায়েন্টের কোনো লেনদেন ডেটা নেই");
+      alert("No transaction data available for this dealer.");
       return;
     }
 
-    const headers = [
-      "তারিখ",
-      "ক্লায়েন্ট",
-      "ধরন",
-      "বিল নং",
-      "ওজন",
-      "ব্যাংক (থেকে)",
-      "ব্যাংক (যাচ্ছে)",
-      "বিলের পরিমাণ (+)",
-      "পেমেন্টের পরিমাণ (-)",
-      "রানিং ব্যালেন্স",
-      "নোট",
-    ];
+    const fmtNum = (n) => Number(n || 0).toFixed(2);
 
     const csvRows = [
-      [`ডিলার / ক্লায়েন্ট হিসাব বিবরণী: ${selectedClient}`],
-      [`ডাউনলোডের তারিখ: ${today()}`],
-      [`মোট বিল: ৳ ${totalBill}`, `মোট পরিশোধ: ৳ ${totalPaid}`, `অবশিষ্ট ব্যালেন্স: ৳ ${balance}`],
+      ['"CHOWDHURY ENGINEERING WORKS"'],
+      ['"DEALER ACCOUNT STATEMENT"'],
       [],
-      headers,
+      ['"Dealer / Client:"', `"${selectedClient}"`, '""', '"Statement Date:"', `"${today()}"`],
+      ['"Total Bill (BDT):"', fmtNum(totalBill), '""', '"Total Paid (BDT):"', fmtNum(totalPaid), '""', '"Net Due Balance (BDT):"', fmtNum(balance)],
+      [],
+      [
+        '"SL"',
+        '"Date"',
+        '"Type"',
+        '"Bill No"',
+        '"Weight (KG)"',
+        '"From Bank / Account"',
+        '"To Bank / Account"',
+        '"Bill Amount (BDT)"',
+        '"Paid Amount (BDT)"',
+        '"Running Balance (BDT)"'
+      ]
     ];
 
-    view.forEach((r) => {
+    view.forEach((r, idx) => {
       csvRows.push([
-        `"${r.entry_date}"`,
-        `"${r.client_name}"`,
-        `"${r.type === "bill" ? "বিল" : "পেমেন্ট"}"`,
-        `"${r.bill_no || ""}"`,
-        `"${r.weight != null ? r.weight : ""}"`,
-        `"${r.from_bank || ""}"`,
-        `"${r.to_bank || ""}"`,
-        `"${r.type === "bill" ? r.amount : ""}"`,
-        `"${r.type === "payment" ? r.amount : ""}"`,
-        `"${r.balance}"`,
-        `"${r.note || ""}"`,
+        idx + 1,
+        `"${r.entry_date || ""}"`,
+        `"${r.type === "bill" ? "Bill" : "Payment"}"`,
+        `"${r.bill_no || "-"}"`,
+        r.weight != null ? Number(r.weight).toFixed(2) : `"-"`,
+        `"${r.from_bank || "-"}"`,
+        `"${r.to_bank || "-"}"`,
+        r.type === "bill" ? fmtNum(r.amount) : "0.00",
+        r.type === "payment" ? fmtNum(r.amount) : "0.00",
+        fmtNum(r.balance)
       ]);
     });
 
     csvRows.push([]);
-    csvRows.push(["", "", "", "", "", "সর্বমোট:", `"${totalBill}"`, `"${totalPaid}"`, `"${balance}"`, ""]);
+    csvRows.push([
+      '""',
+      '""',
+      '""',
+      '""',
+      '""',
+      '""',
+      '"TOTAL SUMMARY:"',
+      fmtNum(totalBill),
+      fmtNum(totalPaid),
+      fmtNum(balance)
+    ]);
 
-    const csvContent = "\uFEFF" + csvRows.map((e) => e.join(",")).join("\n");
+    const csvContent = "\uFEFF" + csvRows.map((e) => e.join(",")).join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `${selectedClient}_হিসাব_স্টেটমেন্ট_${today()}.csv`);
+    const safeClientName = selectedClient.trim().replace(/[^a-zA-Z0-9_\u0980-\u09FF]/g, "_");
+    link.setAttribute("download", `${safeClientName}_Statement_${today()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
