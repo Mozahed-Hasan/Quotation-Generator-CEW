@@ -461,6 +461,176 @@
   .print-signature-row {
     display: none;
   }
+
+  /* Mobile Responsive Adjustments (Phones & Small Tablets) */
+  @media (max-width: 768px) {
+    .wrap {
+      padding: 12px 10px 45px;
+    }
+    header.top {
+      margin-bottom: 14px;
+      gap: 10px;
+    }
+    h1 {
+      font-size: 1.3rem;
+    }
+    .sub {
+      font-size: 0.78rem;
+    }
+    .card {
+      padding: 14px 12px;
+      border-radius: 14px;
+      margin-bottom: 14px;
+    }
+    .client-hero {
+      padding: 14px 12px;
+      border-radius: 14px;
+      margin-bottom: 14px;
+    }
+    .client-hero-title {
+      font-size: 0.98rem;
+      gap: 6px;
+    }
+    .btn-new-client {
+      padding: 6px 11px;
+      font-size: 0.78rem;
+      border-radius: 8px;
+    }
+    .client-input {
+      padding: 10px 36px 10px 12px;
+      font-size: 0.92rem;
+      border-radius: 11px;
+    }
+    .client-chip {
+      padding: 4px 10px;
+      font-size: 0.78rem;
+    }
+    .active-client-banner {
+      padding: 10px 12px;
+      border-radius: 10px;
+      gap: 8px;
+    }
+    .active-client-banner b {
+      font-size: 1.05rem;
+    }
+    .stats {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .stat {
+      padding: 10px 12px;
+      border-radius: 12px;
+    }
+    .stat:last-child {
+      grid-column: span 2;
+    }
+    .stat small {
+      font-size: 0.75rem;
+    }
+    .stat b {
+      font-size: 1.25rem;
+      margin-top: 2px;
+    }
+    .toggle {
+      padding: 3px;
+      margin-bottom: 12px;
+    }
+    .toggle button {
+      padding: 6px 14px;
+      font-size: 0.82rem;
+      border-radius: 7px;
+    }
+    .grid {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    label {
+      font-size: 0.78rem;
+      margin-bottom: 3px;
+    }
+    input, select {
+      padding: 9px 10px;
+      font-size: 0.88rem;
+      border-radius: 9px;
+    }
+    .btn {
+      padding: 10px 18px;
+      font-size: 0.88rem;
+      border-radius: 10px;
+      margin-top: 12px;
+    }
+    .btn-download-pdf,
+    .btn-download-csv,
+    .btn-del-client {
+      padding: 6px 11px;
+      font-size: 0.78rem;
+      border-radius: 7px;
+    }
+    .table-heading-title {
+      font-size: 0.95rem;
+    }
+    .bar {
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    table {
+      min-width: 650px;
+    }
+    th {
+      font-size: 0.78rem;
+      padding: 8px 6px;
+    }
+    td {
+      font-size: 0.82rem;
+      padding: 8px 6px;
+    }
+    .tag {
+      font-size: 0.72rem;
+      padding: 2px 7px;
+    }
+    .no-client-prompt {
+      padding: 28px 14px;
+      border-radius: 14px;
+    }
+    .no-client-prompt h3 {
+      font-size: 1.08rem;
+    }
+    .no-client-prompt p {
+      font-size: 0.82rem;
+    }
+    .modal-box {
+      padding: 16px;
+      border-radius: 14px;
+      max-width: 94vw;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .wrap {
+      padding: 8px 6px 36px;
+    }
+    h1 {
+      font-size: 1.18rem;
+    }
+    .stat b {
+      font-size: 1.15rem;
+    }
+    .stat small {
+      font-size: 0.7rem;
+    }
+    table {
+      min-width: 580px;
+    }
+    th {
+      font-size: 0.74rem;
+      padding: 6px 4px;
+    }
+    td {
+      font-size: 0.78rem;
+      padding: 6px 4px;
+    }
+  }
 }
 
 /* Print styling matching CEW Quotation Letterhead & Professional format */
