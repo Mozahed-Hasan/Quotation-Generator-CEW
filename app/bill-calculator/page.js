@@ -148,22 +148,6 @@ export default function Home() {
       } else {
         setRows(d);
         setErr("");
-        setSelectedClient((prev) => {
-          if (prev) return prev;
-          try {
-            const saved = localStorage.getItem("bc_active_client");
-            if (saved) {
-              setClientSearch(saved);
-              return saved;
-            }
-          } catch {}
-          if (Array.isArray(d) && d.length > 0) {
-            const last = d[d.length - 1].client_name || "";
-            setClientSearch(last);
-            return last;
-          }
-          return "";
-        });
       }
     } catch (e) {
       setErr(e.message);
@@ -213,18 +197,12 @@ export default function Home() {
     setSelectedClient(name);
     setClientSearch(name);
     setShowDropdown(false);
-    try {
-      localStorage.setItem("bc_active_client", name);
-    } catch {}
   }
 
   function handleClearClient() {
     setSelectedClient("");
     setClientSearch("");
     setShowDropdown(false);
-    try {
-      localStorage.removeItem("bc_active_client");
-    } catch {}
   }
 
   // Add new client via Modal or search option
