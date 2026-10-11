@@ -138,6 +138,10 @@ export default function Home() {
   async function load() {
     try {
       const r = await fetch("/api/entries");
+      if (r.status === 401) {
+        router.replace("/bill-calculator/login");
+        return;
+      }
       const d = await r.json();
       if (!r.ok) {
         setErr(d.error || "ডেটা লোড হয়নি");
@@ -254,6 +258,10 @@ export default function Home() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (r.status === 401) {
+      router.replace("/bill-calculator/login");
+      return;
+    }
     const d = await r.json();
     setBusy(false);
     if (!r.ok) return setErr(d.error || "সেভ হয়নি");
@@ -263,13 +271,20 @@ export default function Home() {
 
   async function remove(id) {
     if (!confirm("এই এন্ট্রি মুছে ফেলবেন?")) return;
-    await fetch(`/api/entries/${id}`, { method: "DELETE" });
+    const r = await fetch(`/api/entries/${id}`, { method: "DELETE" });
+    if (r.status === 401) {
+      router.replace("/bill-calculator/login");
+      return;
+    }
     load();
   }
 
   async function logout() {
-    await fetch("/api/login", { method: "DELETE" });
+    try {
+      await fetch("/api/login", { method: "DELETE" });
+    } catch {}
     router.replace("/bill-calculator/login");
+    router.refresh();
   }
 
   // Download selected client data as CSV
