@@ -13,6 +13,24 @@ function UserIcon({ size = 18 }) {
   );
 }
 
+function BuildingIcon({ size = 16 }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
+      <path d="M9 22v-4h6v4" />
+      <path d="M8 6h.01" />
+      <path d="M16 6h.01" />
+      <path d="M12 6h.01" />
+      <path d="M12 10h.01" />
+      <path d="M12 14h.01" />
+      <path d="M16 10h.01" />
+      <path d="M16 14h.01" />
+      <path d="M8 10h.01" />
+      <path d="M8 14h.01" />
+    </svg>
+  );
+}
+
 function PlusIcon({ size = 15 }) {
   return (
     <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -131,24 +149,60 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [extraClients, setExtraClients] = useState([]);
+  const [clientTypes, setClientTypes] = useState({}); // { [name]: "dealer" | "client" }
   const [showNewClientModal, setShowNewClientModal] = useState(false);
   const [newClientInput, setNewClientInput] = useState("");
+  const [newClientType, setNewClientType] = useState("dealer"); // "dealer" | "client"
   const dropdownRef = useRef(null);
 
-  // Load entries from server and extra clients from localStorage
+  // Helper for determining whether an entity is client or dealer
+  const getEntityType = (name) => clientTypes[name] || "dealer";
+  const isSelectedClient = getEntityType(selectedClient) === "client";
+  const entityLabel = isSelectedClient ? "ক্লায়েন্ট" : "ডিলার";
+  const entityLabelEn = isSelectedClient ? "Client" : "Dealer";
+  const entityLabelUpper = isSelectedClient ? "CLIENT" : "DEALER";
+
+  // Load entries from server and sync clients/types
   async function load() {
     try {
-      const r = await fetch("/api/entries");
-      if (r.status === 401) {
+      const [rEntries, rClients] = await Promise.all([
+        fetch("/api/entries"),
+        fetch("/api/clients").catch(() => null),
+      ]);
+
+      if (rEntries.status === 401) {
         router.replace("/bill-calculator/login");
         return;
       }
-      const d = await r.json();
-      if (!r.ok) {
+      const d = await rEntries.json();
+      if (!rEntries.ok) {
         setErr(d.error || "ডেটা লোড হয়নি");
       } else {
         setRows(d);
         setErr("");
+      }
+
+      if (rClients && rClients.ok) {
+        const clientList = await rClients.json();
+        const typeMap = {};
+        const extraNames = [];
+        clientList.forEach((c) => {
+          if (c.name) {
+            typeMap[c.name] = c.type || "dealer";
+            extraNames.push(c.name);
+          }
+        });
+        setClientTypes((prev) => ({ ...prev, ...typeMap }));
+        setExtraClients((prev) => {
+          const combined = Array.from(new Set([...prev, ...extraNames]));
+          try {
+            localStorage.setItem("bc_extra_clients", JSON.stringify(combined));
+          } catch {}
+          return combined;
+        });
+        try {
+          localStorage.setItem("bc_client_types", JSON.stringify(typeMap));
+        } catch {}
       }
     } catch (e) {
       setErr(e.message);
@@ -157,11 +211,15 @@ export default function Home() {
   }
 
   useEffect(() => {
-    load();
+    try {
+      const savedTypes = localStorage.getItem("bc_client_types");
+      if (savedTypes) setClientTypes(JSON.parse(savedTypes));
+    } catch {}
     try {
       const saved = localStorage.getItem("bc_extra_clients");
       if (saved) setExtraClients(JSON.parse(saved));
     } catch {}
+    load();
   }, []);
 
   // Close dropdown on outside click
@@ -206,10 +264,18 @@ export default function Home() {
     setShowDropdown(false);
   }
 
-  // Add new client via Modal or search option
-  function handleAddNewClient(name) {
+  // Add new client via Modal or quick option
+  async function handleAddNewClient(name, typeOverride) {
     const trimmed = (name || newClientInput).trim();
     if (!trimmed) return;
+    const type = typeOverride || newClientType;
+
+    const nextTypes = { ...clientTypes, [trimmed]: type };
+    setClientTypes(nextTypes);
+    try {
+      localStorage.setItem("bc_client_types", JSON.stringify(nextTypes));
+    } catch {}
+
     if (!clients.includes(trimmed)) {
       const next = [...extraClients, trimmed];
       setExtraClients(next);
@@ -217,11 +283,21 @@ export default function Home() {
         localStorage.setItem("bc_extra_clients", JSON.stringify(next));
       } catch {}
     }
+
+    try {
+      await fetch("/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed, type }),
+      });
+    } catch {}
+
     setSelectedClient(trimmed);
     setClientSearch(trimmed);
     setShowDropdown(false);
     setShowNewClientModal(false);
     setNewClientInput("");
+    setNewClientType("dealer");
   }
 
   // Transactions filtered ONLY by selected client
@@ -245,7 +321,7 @@ export default function Home() {
   async function submit(e) {
     e.preventDefault();
     if (!selectedClient.trim()) {
-      setErr("অনুগ্রহ করে প্রথমে একজন ক্লায়েন্ট / ডিলার নির্বাচন করুন");
+      setErr("অনুগ্রহ করে প্রথমে একজন ক্লায়েন্ট বা ডিলার নির্বাচন করুন");
       return;
     }
     setBusy(true);
@@ -253,6 +329,7 @@ export default function Home() {
     const payload = {
       ...form,
       client_name: selectedClient.trim(),
+      client_type: getEntityType(selectedClient),
     };
     const r = await fetch("/api/entries", {
       method: "POST",
@@ -282,11 +359,13 @@ export default function Home() {
 
   async function handleDeleteClient(clientToDelete) {
     if (!clientToDelete) return;
+    const type = getEntityType(clientToDelete);
+    const label = type === "client" ? "ক্লায়েন্ট" : "ডিলার";
     const clientRows = rows.filter((r) => r.client_name === clientToDelete);
     const count = clientRows.length;
     const msg = count > 0
-      ? `"${clientToDelete}" ডিলার এবং তার ${count}টি লেনদেনের সমস্ত হিসাব মুছে ফেলতে চান?\nএই প্রক্রিয়াটি পরে আর ফেরত আনা যাবে না।`
-      : `"${clientToDelete}" ডিলারকে তালিকা থেকে মুছে ফেলতে চান?`;
+      ? `"${clientToDelete}" ${label} এবং তার ${count}টি লেনদেনের সমস্ত হিসাব মুছে ফেলতে চান?\nএই প্রক্রিয়াটি পরে আর ফেরত আনা যাবে না।`
+      : `"${clientToDelete}" ${label}কে তালিকা থেকে মুছে ফেলতে চান?`;
 
     if (!window.confirm(msg)) return;
 
@@ -302,8 +381,12 @@ export default function Home() {
 
       const nextExtra = extraClients.filter((c) => c !== clientToDelete);
       setExtraClients(nextExtra);
+      const nextTypes = { ...clientTypes };
+      delete nextTypes[clientToDelete];
+      setClientTypes(nextTypes);
       try {
         localStorage.setItem("bc_extra_clients", JSON.stringify(nextExtra));
+        localStorage.setItem("bc_client_types", JSON.stringify(nextTypes));
       } catch {}
 
       if (selectedClient === clientToDelete) {
@@ -313,7 +396,7 @@ export default function Home() {
 
       await load();
     } catch (e) {
-      alert("ডিলার মুছতে সমস্যা হয়েছে: " + e.message);
+      alert(`${label} মুছতে সমস্যা হয়েছে: ` + e.message);
     } finally {
       setBusy(false);
     }
@@ -331,7 +414,7 @@ export default function Home() {
   function downloadClientData() {
     if (!selectedClient) return;
     if (view.length === 0) {
-      alert("No transaction data available for this dealer.");
+      alert(`No transaction data available for this ${entityLabelEn.toLowerCase()}.`);
       return;
     }
 
@@ -339,9 +422,9 @@ export default function Home() {
 
     const csvRows = [
       ['"CHOWDHURY ENGINEERING WORKS"'],
-      ['"DEALER ACCOUNT STATEMENT"'],
+      [`"${entityLabelUpper} ACCOUNT STATEMENT"`],
       [],
-      ['"Dealer / Client:"', `"${selectedClient}"`, '""', '"Statement Date:"', `"${today()}"`],
+      [`"${entityLabelEn}:"`, `"${selectedClient}"`, '""', '"Statement Date:"', `"${today()}"`],
       ['"Total Bill (BDT):"', fmtNum(totalBill), '""', '"Total Paid (BDT):"', fmtNum(totalPaid), '""', '"Net Due Balance (BDT):"', fmtNum(balance)],
       [],
       [
@@ -396,7 +479,7 @@ export default function Home() {
     const link = document.createElement("a");
     link.setAttribute("href", url);
     const safeClientName = selectedClient.trim().replace(/[^a-zA-Z0-9_\u0980-\u09FF]/g, "_");
-    link.setAttribute("download", `${safeClientName}_Statement_${today()}.csv`);
+    link.setAttribute("download", `${safeClientName}_${entityLabelEn}_Statement_${today()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -407,13 +490,14 @@ export default function Home() {
   async function downloadPdf() {
     if (!selectedClient) return;
     if (view.length === 0) {
-      alert("এই ক্লায়েন্টের কোনো লেনদেন ডেটা নেই");
+      alert(`এই ${entityLabel}-এর কোনো লেনদেন ডেটা নেই`);
       return;
     }
     setPdfBusy(true);
     try {
       await generateBillPdf({
         clientName: selectedClient,
+        clientType: getEntityType(selectedClient),
         view,
         totalBill,
         totalPaid,
@@ -448,8 +532,8 @@ export default function Home() {
         {selectedClient && (
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "10pt" }}>
             <div>
-              <p style={{ margin: "2px 0" }}><strong>ডিলার / ক্লায়েন্ট:</strong> {selectedClient}</p>
-              <p style={{ margin: "2px 0", color: "#475569" }}>ডিলার লেনদেন ও বিল হিসাব স্টেটমেন্ট</p>
+              <p style={{ margin: "2px 0" }}><strong>{entityLabel}:</strong> {selectedClient}</p>
+              <p style={{ margin: "2px 0", color: "#475569" }}>{entityLabel} লেনদেন ও বিল হিসাব স্টেটমেন্ট</p>
             </div>
             <div style={{ textAlign: "right" }}>
               <p style={{ margin: "2px 0" }}><strong>তারিখ:</strong> {today()}</p>
@@ -459,7 +543,7 @@ export default function Home() {
         )}
         <div style={{ textAlign: "center", marginBottom: "14px" }}>
           <span style={{ fontSize: "13pt", fontWeight: "bold", borderBottom: "1.5px solid #000", paddingBottom: "2px", letterSpacing: "0.5px" }}>
-            DEALER ACCOUNT STATEMENT / ডিলার হিসাব বিবরণী
+            {entityLabelUpper} ACCOUNT STATEMENT / {entityLabel} হিসাব বিবরণী
           </span>
         </div>
       </div>
@@ -468,7 +552,7 @@ export default function Home() {
       <header className="top">
         <div>
           <h1>বিল ক্যালকুলেটর</h1>
-          <p className="sub">CEW ডিলারদের বিল, পেমেন্ট ও ব্যালেন্স হিসাব</p>
+          <p className="sub">CEW ডিলার ও ক্লায়েন্টদের বিল, পেমেন্ট ও ব্যালেন্স হিসাব</p>
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           <a
@@ -490,7 +574,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* TOP SECTION: Client Selection Dropdown with Autocomplete & Add Client */}
+      {/* TOP SECTION: Client / Dealer Selection Dropdown with Autocomplete & Add Option */}
       <section className="client-hero" ref={dropdownRef}>
         <div className="client-hero-header">
           <div className="client-hero-title">
@@ -500,15 +584,18 @@ export default function Home() {
           <div className="client-top-actions">
             {clients.length > 0 && (
               <small style={{ color: "var(--muted)", marginRight: 8 }}>
-                মোট ডিলার: <b>{clients.length}</b> জন
+                মোট তালিকাভুক্ত: <b>{clients.length}</b> জন
               </small>
             )}
             <button
               type="button"
               className="btn-new-client"
-              onClick={() => setShowNewClientModal(true)}
+              onClick={() => {
+                setNewClientType("dealer");
+                setShowNewClientModal(true);
+              }}
             >
-              <PlusIcon /> নতুন ডিলার যোগ করুন
+              <PlusIcon /> নতুন ডিলার / ক্লায়েন্ট যোগ করুন
             </button>
           </div>
         </div>
@@ -519,7 +606,7 @@ export default function Home() {
               id="client-search-input"
               className="client-input"
               type="text"
-              placeholder="ডিলারের নাম লিখুন (১-২ টি অক্ষর লিখলেই সাজেশন আসবে)..."
+              placeholder="ডিলার বা ক্লায়েন্টের নাম লিখুন (১-২ টি অক্ষর লিখলেই সাজেশন আসবে)..."
               value={clientSearch}
               onChange={(e) => {
                 setClientSearch(e.target.value);
@@ -549,6 +636,7 @@ export default function Home() {
               {filteredSuggestions.length > 0 ? (
                 filteredSuggestions.map((client) => {
                   const isCur = selectedClient === client;
+                  const cType = getEntityType(client);
                   return (
                     <div
                       key={client}
@@ -556,7 +644,11 @@ export default function Home() {
                       onClick={() => handleSelectClient(client)}
                     >
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                        <UserIcon size={16} /> <b>{client}</b>
+                        {cType === "client" ? <UserIcon size={16} /> : <BuildingIcon size={16} />}
+                        <b>{client}</b>
+                        <span className={`entity-tag ${cType}`}>
+                          {cType === "client" ? "ক্লায়েন্ট" : "ডিলার"}
+                        </span>
                       </span>
                       <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                         {isCur ? (
@@ -568,7 +660,7 @@ export default function Home() {
                         )}
                         <span
                           className="dropdown-del-btn"
-                          title={`"${client}" ডিলার মুছে ফেলুন`}
+                          title={`"${client}" ${cType === "client" ? "ক্লায়েন্ট" : "ডিলার"} মুছে ফেলুন`}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDeleteClient(client);
@@ -582,39 +674,56 @@ export default function Home() {
                 })
               ) : (
                 <div style={{ padding: "10px 14px", color: "var(--muted)", fontSize: "0.9rem" }}>
-                  এই নামের কোনো ডিলার তালিকায় নেই
+                  এই নামের কোনো ডিলার বা ক্লায়েন্ট তালিকায় নেই
                 </div>
               )}
 
-              {/* Option to create brand new client directly from typing */}
+              {/* Quick option to create brand new dealer or client directly from typing */}
               {clientSearch.trim() && !clients.includes(clientSearch.trim()) && (
-                <div
-                  className="dropdown-create-new"
-                  onClick={() => handleAddNewClient(clientSearch.trim())}
-                >
-                  <PlusIcon size={16} /> নতুন ক্লায়েন্ট হিসেবে যুক্ত ও নির্বাচন করুন: &quot;<b>{clientSearch.trim()}</b>&quot;
+                <div style={{ display: "flex", gap: 6, padding: "8px 10px", borderTop: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    style={{ flex: 1, fontSize: "0.82rem", padding: "7px 10px", borderColor: "#f59e0b", color: "#fbbf24", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                    onClick={() => handleAddNewClient(clientSearch.trim(), "dealer")}
+                  >
+                    <BuildingIcon size={14} /> ডিলার হিসেবে যুক্ত করুন: &quot;<b>{clientSearch.trim()}</b>&quot;
+                  </button>
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    style={{ flex: 1, fontSize: "0.82rem", padding: "7px 10px", borderColor: "#38bdf8", color: "#38bdf8", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                    onClick={() => handleAddNewClient(clientSearch.trim(), "client")}
+                  >
+                    <UserIcon size={14} /> ক্লায়েন্ট হিসেবে যুক্ত করুন: &quot;<b>{clientSearch.trim()}</b>&quot;
+                  </button>
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Selected client active banner with Download & Print buttons */}
+        {/* Selected client active banner */}
         {selectedClient ? (
           <div className="active-client-banner">
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <UserIcon size={18} />
-              <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>বর্তমান নির্বাচিত ডিলার:</span>{" "}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              {isSelectedClient ? <UserIcon size={18} /> : <BuildingIcon size={18} />}
+              <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>
+                বর্তমান নির্বাচিত {entityLabel}:
+              </span>{" "}
               <b>{selectedClient}</b>
+              <span className={`entity-tag ${getEntityType(selectedClient)}`}>
+                {entityLabel}
+              </span>
             </div>
             <div className="active-client-banner-actions">
               <button
                 type="button"
                 className="btn-del-client"
                 onClick={() => handleDeleteClient(selectedClient)}
-                title="এই ডিলার ও তার সমস্ত হিসাব মুছে ফেলুন"
+                title={`এই ${entityLabel} ও তার সমস্ত হিসাব মুছে ফেলুন`}
               >
-                <TrashIcon size={14} /> ডিলার মুছুন
+                <TrashIcon size={14} /> {entityLabel} মুছুন
               </button>
               <button
                 type="button"
@@ -622,7 +731,7 @@ export default function Home() {
                 style={{ fontSize: "0.82rem", padding: "5px 10px" }}
                 onClick={handleClearClient}
               >
-                অন্য ডিলার নির্বাচন করুন
+                অন্য {entityLabel} নির্বাচন করুন
               </button>
             </div>
           </div>
@@ -631,36 +740,62 @@ export default function Home() {
           clients.length > 0 && (
             <div className="client-chips">
               <span className="client-chips-label">দ্রুত নির্বাচন:</span>
-              {clients.slice(0, 10).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  className="client-chip"
-                  onClick={() => handleSelectClient(c)}
-                >
-                  <UserIcon size={12} /> {c}
-                </button>
-              ))}
+              {clients.slice(0, 10).map((c) => {
+                const cType = getEntityType(c);
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    className="client-chip"
+                    onClick={() => handleSelectClient(c)}
+                  >
+                    {cType === "client" ? <UserIcon size={12} /> : <BuildingIcon size={12} />}
+                    <span>{c}</span>
+                    <span className={`entity-tag ${cType}`} style={{ fontSize: "0.65rem", padding: "1px 5px" }}>
+                      {cType === "client" ? "ক্লায়েন্ট" : "ডিলার"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )
         )}
       </section>
 
-      {/* Modal for adding new client explicitly */}
+      {/* Modal for adding new client/dealer explicitly with type selector */}
       {showNewClientModal && (
         <div className="modal-overlay" onClick={() => setShowNewClientModal(false)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <PlusIcon size={18} /> নতুন ডিলার / ক্লায়েন্ট যোগ করুন
+              <PlusIcon size={18} /> নতুন {newClientType === "client" ? "ক্লায়েন্ট" : "ডিলার"} যোগ করুন
             </h3>
             <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginBottom: 16 }}>
-              নতুন ডিলারের নাম লিখুন। নাম যুক্ত হওয়ার সাথে সাথেই আপনি তার জন্য বিল ও পেমেন্ট এন্ট্রি করতে পারবেন।
+              প্রথমে ধরন (ডিলার নাকি ক্লায়েন্ট) নির্বাচন করুন, তারপর নাম লিখুন। নাম যুক্ত হওয়ার সাথে সাথেই আপনি বিল ও পেমেন্ট এন্ট্রি করতে পারবেন।
             </p>
-            <label htmlFor="new-client-name">ডিলারের নাম</label>
+
+            {/* Entity Type Selection Toggle */}
+            <div className="entity-type-group">
+              <div
+                className={`entity-type-option ${newClientType === "dealer" ? "active-dealer" : ""}`}
+                onClick={() => setNewClientType("dealer")}
+              >
+                <BuildingIcon size={16} /> 🏢 ডিলার (Dealer)
+              </div>
+              <div
+                className={`entity-type-option ${newClientType === "client" ? "active-client" : ""}`}
+                onClick={() => setNewClientType("client")}
+              >
+                <UserIcon size={16} /> 👤 ক্লায়েন্ট (Client)
+              </div>
+            </div>
+
+            <label htmlFor="new-client-name">
+              {newClientType === "client" ? "ক্লায়েন্টের নাম" : "ডিলারের নাম"}
+            </label>
             <input
               id="new-client-name"
               type="text"
-              placeholder="যেমন: মেসার্স রহিম এন্টারপ্রাইজ"
+              placeholder={newClientType === "client" ? "যেমন: মেসার্স আলম ব্রাদার্স / মিস্টার করিম" : "যেমন: মেসার্স রহিম এন্টারপ্রাইজ"}
               value={newClientInput}
               onChange={(e) => setNewClientInput(e.target.value)}
               onKeyDown={(e) => {
@@ -683,7 +818,7 @@ export default function Home() {
                 onClick={() => handleAddNewClient()}
                 disabled={!newClientInput.trim()}
               >
-                <CheckIcon /> সংরক্ষণ ও নির্বাচন করুন
+                <CheckIcon /> {newClientType === "client" ? "ক্লায়েন্ট" : "ডিলার"} সংরক্ষণ ও নির্বাচন করুন
               </button>
             </div>
           </div>
@@ -704,7 +839,7 @@ export default function Home() {
               <b className="neg">৳ {fmt(totalPaid)}</b>
             </div>
             <div className="stat bal">
-              <small>{selectedClient} - নিট ব্যালেন্স (বাকি)</small>
+              <small>{selectedClient} - নিট ব্যালেন্স ({entityLabel}-এর বাকি)</small>
               <b className={balance >= 0 ? "pos" : "neg"}>৳ {fmt(balance)}</b>
             </div>
           </section>
@@ -740,7 +875,11 @@ export default function Home() {
                 </button>
               </div>
               <div style={{ fontSize: "0.9rem", color: "var(--muted)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <UserIcon size={15} /> ডিলার: <b style={{ color: "#fff" }}>{selectedClient}</b>
+                {isSelectedClient ? <UserIcon size={15} /> : <BuildingIcon size={15} />}
+                {entityLabel}: <b style={{ color: "#fff" }}>{selectedClient}</b>
+                <span className={`entity-tag ${getEntityType(selectedClient)}`}>
+                  {entityLabel}
+                </span>
               </div>
             </div>
 
@@ -832,11 +971,11 @@ export default function Home() {
                 "সেভ হচ্ছে..."
               ) : isBill ? (
                 <>
-                  <PlusIcon /> বিল যোগ করুন ({selectedClient})
+                  <PlusIcon /> বিল যোগ করুন ({selectedClient} - {entityLabel})
                 </>
               ) : (
                 <>
-                  <MinusIcon /> পেমেন্ট জমা দিন ({selectedClient})
+                  <MinusIcon /> পেমেন্ট জমা দিন ({selectedClient} - {entityLabel})
                 </>
               )}
             </button>
@@ -846,7 +985,7 @@ export default function Home() {
           <section className="card">
             <div className="bar">
               <h2 className="table-heading-title">
-                <FileTextIcon size={18} /> {selectedClient} - এর লেনদেন ও ব্যালেন্স হিস্ট্রি
+                <FileTextIcon size={18} /> {selectedClient} ({entityLabel}) - এর লেনদেন ও ব্যালেন্স হিস্ট্রি
               </h2>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <button
@@ -862,7 +1001,7 @@ export default function Home() {
                   type="button"
                   className="btn-download-csv"
                   onClick={downloadClientData}
-                  title="এই ডিলারের সম্পূর্ণ হিসাব এক্সেলে ডাউনলোড করুন"
+                  title={`এই ${entityLabel}-এর সম্পূর্ণ হিসাব এক্সেলে ডাউনলোড করুন`}
                 >
                   <DownloadIcon /> Excel
                 </button>
@@ -874,7 +1013,7 @@ export default function Home() {
                 <thead>
                   <tr>
                     <th>তারিখ</th>
-                    <th>ক্লায়েন্ট</th>
+                    <th>{entityLabel}</th>
                     <th>ধরন</th>
                     <th>বিল নং</th>
                     <th className="num">ওজন</th>
@@ -934,7 +1073,7 @@ export default function Home() {
               </table>
               {loaded && view.length === 0 && (
                 <p className="empty">
-                  {selectedClient} - এর জন্য এখনো কোনো লেনদেন এন্ট্রি করা হয়নি
+                  {selectedClient} ({entityLabel}) - এর জন্য এখনো কোনো লেনদেন এন্ট্রি করা হয়নি
                 </p>
               )}
             </div>
@@ -948,15 +1087,18 @@ export default function Home() {
           </div>
           <h3>অনুগ্রহ করে প্রথমে উপরে ক্লায়েন্ট / ডিলার নির্বাচন করুন</h3>
           <p style={{ marginBottom: 16 }}>
-            ডিলারের বিবরণ, বিল এন্ট্রি এবং লেনদেন হিস্ট্রি দেখার জন্য উপরের সার্চ বক্স থেকে ডিলার সিলেক্ট করুন অথবা &quot;নতুন ডিলার যোগ করুন&quot; বাটনে ক্লিক করুন।
+            ডিলার বা ক্লায়েন্টের বিবরণ, বিল এন্ট্রি এবং লেনদেন হিস্ট্রি দেখার জন্য উপরের সার্চ বক্স থেকে নির্বাচন করুন অথবা &quot;নতুন ডিলার / ক্লায়েন্ট যোগ করুন&quot; বাটনে ক্লিক করুন।
           </p>
           <button
             type="button"
             className="btn"
             style={{ margin: "0 auto", display: "inline-flex", alignItems: "center", gap: 6 }}
-            onClick={() => setShowNewClientModal(true)}
+            onClick={() => {
+              setNewClientType("dealer");
+              setShowNewClientModal(true);
+            }}
           >
-            <PlusIcon /> নতুন ক্লায়েন্ট যোগ করুন
+            <PlusIcon /> নতুন ডিলার / ক্লায়েন্ট যোগ করুন
           </button>
         </div>
       )}
