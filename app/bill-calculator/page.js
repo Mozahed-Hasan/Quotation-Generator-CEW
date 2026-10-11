@@ -855,17 +855,18 @@ export default function Home() {
           {/* Transaction History Ledger Table ONLY for Selected Client */}
           <section className="card">
             <div className="bar">
-              <h2 style={{ fontSize: "1.2rem", color: "#fff", display: "inline-flex", alignItems: "center", gap: 8 }}>
-                <FileTextIcon size={20} /> {selectedClient} - এর লেনদেন ও ব্যালেন্স হিস্ট্রি
+              <h2 className="table-heading-title">
+                <FileTextIcon size={18} /> {selectedClient} - এর লেনদেন ও ব্যালেন্স হিস্ট্রি
               </h2>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <button
                   type="button"
-                  className="btn-download-csv"
-                  onClick={downloadClientData}
-                  title="এই ডিলারের সম্পূর্ণ হিসাব এক্সেলে ডাউনলোড করুন"
+                  className="btn-download-pdf"
+                  onClick={downloadPdf}
+                  disabled={pdfBusy}
+                  title="অফিসিয়াল প্যাড সহ PDF"
                 >
-                  <DownloadIcon /> Excel / CSV
+                  <FileTextIcon /> PDF ডাউনলোড
                 </button>
                 <button
                   type="button"
@@ -873,7 +874,15 @@ export default function Home() {
                   onClick={printStatement}
                   title="প্রিন্ট বা PDF হিসেবে সংরক্ষণ করুন"
                 >
-                  <PrinterIcon /> প্রিন্ট / PDF
+                  <PrinterIcon /> প্রিন্ট
+                </button>
+                <button
+                  type="button"
+                  className="btn-download-csv"
+                  onClick={downloadClientData}
+                  title="এই ডিলারের সম্পূর্ণ হিসাব এক্সেলে ডাউনলোড করুন"
+                >
+                  <DownloadIcon /> Excel
                 </button>
               </div>
             </div>
@@ -890,7 +899,7 @@ export default function Home() {
                     <th>ব্যাংক (থেকে → যাচ্ছে)</th>
                     <th className="num">পরিমাণ</th>
                     <th className="num">রানিং ব্যালেন্স</th>
-                    <th></th>
+                    <th className="action-col"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -932,7 +941,7 @@ export default function Home() {
                           ৳ {fmt(r.balance)}
                         </b>
                       </td>
-                      <td>
+                      <td className="action-col">
                         <button className="del" title="মুছুন" onClick={() => remove(r.id)}>
                           <TrashIcon />
                         </button>

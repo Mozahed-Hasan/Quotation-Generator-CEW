@@ -580,4 +580,27 @@
   .bill-calc-scope .tag.payment {
     color: #047857 !important;
   }
+  .bill-calc-scope .bar {
+    display: block !important;
+    text-align: center !important;
+    margin-bottom: 8px !important;
+  }
+  .bill-calc-scope .table-heading-title {
+    color: #000 !important;
+    font-size: 10pt !important;
+    font-weight: 600 !important;
+    text-align: center !important;
+    display: block !important;
+    margin: 0 auto 6px auto !important;
+  }
+  .bill-calc-scope .table-heading-title svg {
+    display: none !important;
+  }
+  .bill-calc-scope .action-col,
+  .bill-calc-scope th.action-col,
+  .bill-calc-scope td.action-col,
+  .bill-calc-scope th:last-child,
+  .bill-calc-scope td:last-child {
+    display: none !important;
+  }
 }
