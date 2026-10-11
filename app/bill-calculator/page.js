@@ -595,23 +595,6 @@ export default function Home() {
             <div className="active-client-banner-actions">
               <button
                 type="button"
-                className="btn-download-pdf"
-                onClick={downloadPdf}
-                disabled={pdfBusy}
-                title="CEW অফিসিয়াল প্যাড লেটারহেডে সুন্দর PDF ডাউনলোড করুন"
-              >
-                <FileTextIcon /> {pdfBusy ? "তৈরি হচ্ছে..." : "PDF ডাউনলোড"}
-              </button>
-              <button
-                type="button"
-                className="btn-download-csv"
-                onClick={downloadClientData}
-                title="এই ডিলারের সম্পূর্ণ হিসাব এক্সেলে ডাউনলোড করুন"
-              >
-                <DownloadIcon /> Excel
-              </button>
-              <button
-                type="button"
                 className="btn-del-client"
                 onClick={() => handleDeleteClient(selectedClient)}
                 title="এই ডিলার ও তার সমস্ত হিসাব মুছে ফেলুন"
