@@ -345,6 +345,41 @@
   .btn-print:hover {
     background: rgba(255, 255, 255, 0.2);
   }
+  .btn-del-client {
+    background: rgba(251, 113, 133, 0.16);
+    border: 1px solid rgba(251, 113, 133, 0.35);
+    color: var(--red);
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+  }
+  .btn-del-client:hover {
+    background: var(--red);
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(251, 113, 133, 0.4);
+  }
+  .dropdown-del-btn {
+    padding: 4px 6px;
+    border-radius: 6px;
+    color: var(--muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    margin-left: 6px;
+  }
+  .dropdown-del-btn:hover {
+    color: #fff;
+    background: rgba(251, 113, 133, 0.4);
+  }
 
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 20px; }
   .stat { border-radius: 18px; padding: 18px 20px; border: 1px solid var(--border); background: var(--card); transition: transform .2s; }

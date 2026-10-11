@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getEntries, createEntry } from "@/lib/db";
+import { getEntries, createEntry, deleteClientEntries } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -38,3 +38,18 @@ export async function POST(req) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
+
+export async function DELETE(req) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const clientName = searchParams.get("client_name");
+    if (!clientName) {
+      return NextResponse.json({ error: "ক্লায়েন্টের নাম প্রয়োজন" }, { status: 400 });
+    }
+    await deleteClientEntries(clientName);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+

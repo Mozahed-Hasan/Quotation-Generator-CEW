@@ -279,6 +279,45 @@ export default function Home() {
     load();
   }
 
+  async function handleDeleteClient(clientToDelete) {
+    if (!clientToDelete) return;
+    const clientRows = rows.filter((r) => r.client_name === clientToDelete);
+    const count = clientRows.length;
+    const msg = count > 0
+      ? `"${clientToDelete}" ডিলার এবং তার ${count}টি লেনদেনের সমস্ত হিসাব মুছে ফেলতে চান?\nএই প্রক্রিয়াটি পরে আর ফেরত আনা যাবে না।`
+      : `"${clientToDelete}" ডিলারকে তালিকা থেকে মুছে ফেলতে চান?`;
+
+    if (!window.confirm(msg)) return;
+
+    try {
+      setBusy(true);
+      const res = await fetch(`/api/entries?client_name=${encodeURIComponent(clientToDelete)}`, {
+        method: "DELETE",
+      });
+      if (res.status === 401) {
+        router.replace("/bill-calculator/login");
+        return;
+      }
+
+      const nextExtra = extraClients.filter((c) => c !== clientToDelete);
+      setExtraClients(nextExtra);
+      try {
+        localStorage.setItem("bc_extra_clients", JSON.stringify(nextExtra));
+      } catch {}
+
+      if (selectedClient === clientToDelete) {
+        setSelectedClient("");
+        setClientSearch("");
+      }
+
+      await load();
+    } catch (e) {
+      alert("ডিলার মুছতে সমস্যা হয়েছে: " + e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function logout() {
     try {
       await fetch("/api/login", { method: "DELETE" });
@@ -449,13 +488,25 @@ export default function Home() {
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                         <UserIcon size={16} /> <b>{client}</b>
                       </span>
-                      {isCur ? (
-                        <span className="badge" style={{ color: "var(--accent2)", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                          <CheckIcon size={12} /> নির্বাচিত
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        {isCur ? (
+                          <span className="badge" style={{ color: "var(--accent2)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <CheckIcon size={12} /> নির্বাচিত
+                          </span>
+                        ) : (
+                          <span className="badge">নির্বাচন করুন</span>
+                        )}
+                        <span
+                          className="dropdown-del-btn"
+                          title={`"${client}" ডিলার মুছে ফেলুন`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteClient(client);
+                          }}
+                        >
+                          <TrashIcon size={13} />
                         </span>
-                      ) : (
-                        <span className="badge">নির্বাচন করুন</span>
-                      )}
+                      </div>
                     </div>
                   );
                 })
@@ -502,6 +553,14 @@ export default function Home() {
                 title="প্রিন্ট বা PDF হিসেবে সংরক্ষণ করুন"
               >
                 <PrinterIcon /> প্রিন্ট / PDF
+              </button>
+              <button
+                type="button"
+                className="btn-del-client"
+                onClick={() => handleDeleteClient(selectedClient)}
+                title="এই ডিলার ও তার সমস্ত হিসাব মুছে ফেলুন"
+              >
+                <TrashIcon size={14} /> ডিলার মুছুন
               </button>
               <button
                 type="button"
