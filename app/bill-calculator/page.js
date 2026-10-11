@@ -938,18 +938,6 @@ export default function Home() {
                 </p>
               )}
             </div>
-            {/* Signature Row for Printed Output */}
-            <div className="print-signature-row">
-              <div className="print-sig-col">
-                <div className="print-sig-line" />
-                <p>প্রস্তুতকারক (Prepared By)</p>
-              </div>
-              <div className="print-sig-col" style={{ textAlign: "right" }}>
-                <div className="print-sig-line" style={{ marginLeft: "auto" }} />
-                <p>অনুমোদিত স্বাক্ষর (Authorized Signature)</p>
-                <p style={{ fontWeight: "bold", marginTop: "2px" }}>Chowdhury Engineering Works</p>
-              </div>
-            </div>
           </section>
         </>
       ) : (
