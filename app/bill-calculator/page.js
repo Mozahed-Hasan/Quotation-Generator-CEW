@@ -604,14 +604,6 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                className="btn-print"
-                onClick={printStatement}
-                title="প্রিন্ট করুন"
-              >
-                <PrinterIcon /> প্রিন্ট
-              </button>
-              <button
-                type="button"
                 className="btn-download-csv"
                 onClick={downloadClientData}
                 title="এই ডিলারের সম্পূর্ণ হিসাব এক্সেলে ডাউনলোড করুন"
@@ -864,17 +856,9 @@ export default function Home() {
                   className="btn-download-pdf"
                   onClick={downloadPdf}
                   disabled={pdfBusy}
-                  title="অফিসিয়াল প্যাড সহ PDF"
+                  title="অফিসিয়াল প্যাড সহ PDF ডাউনলোড করুন"
                 >
                   <FileTextIcon /> PDF ডাউনলোড
-                </button>
-                <button
-                  type="button"
-                  className="btn-print"
-                  onClick={printStatement}
-                  title="প্রিন্ট বা PDF হিসেবে সংরক্ষণ করুন"
-                >
-                  <PrinterIcon /> প্রিন্ট
                 </button>
                 <button
                   type="button"
