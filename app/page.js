@@ -194,12 +194,12 @@ export default function Home() {
           <Link
             href="/bill-calculator"
             className="btn btn-ghost shadow-sm ring-1 ring-slate-200 hover:ring-brand-300 text-slate-700 hover:text-brand-700 transition"
-            title="ডিলার বিল ক্যালকুলেটর"
+            title="Bill Calculator"
           >
             <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
-            <span className="text-xs sm:text-sm font-medium">বিল ক্যালকুলেটর</span>
+            <span className="text-xs sm:text-sm font-medium">Bill Calculator</span>
           </Link>
           <button
             type="button"
@@ -292,27 +292,18 @@ export default function Home() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                <span>কলাম ও হেডার এডিট ({columns.length}টি কলাম)</span>
+                <span>Edit Columns & Headers ({columns.length} columns)</span>
               </div>
-              <span className="text-[11px] font-bold text-brand-700 bg-white border border-brand-200 px-2 py-0.5 rounded-full shadow-xs">
-                {showColManager ? "লুকান ▲" : "এডিট করুন ▼"}
+              <span className="text-[11px] font-bold text-brand-700 bg-white border border-brand-200 px-2.5 py-0.5 rounded-full shadow-xs">
+                {showColManager ? "Hide ▲" : "Edit ▼"}
               </span>
             </button>
 
             {showColManager && (
               <div className="mt-2 space-y-2 rounded-xl border border-brand-200 bg-white p-3 shadow-md">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-800">হেডারের নাম ও কলাম লিস্ট</h3>
-                    <p className="text-[10px] text-slate-500">নাম পরিবর্তন করতে টাইপ করুন অথবা ✕ চাপুন</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={addCol}
-                    className="text-[11px] font-bold text-brand-700 bg-brand-50 border border-brand-300 rounded-lg px-2.5 py-1 shadow-xs hover:bg-brand-100 flex items-center gap-1"
-                  >
-                    <span>+</span> কলাম যোগ করুন
-                  </button>
+                <div className="pb-2 border-b border-slate-100">
+                  <h3 className="text-xs font-bold text-slate-800">Column Titles & Headers</h3>
+                  <p className="text-[11px] text-slate-500">Type to rename any column or tap ✕ to delete</p>
                 </div>
                 <div className="space-y-1.5 pt-1">
                   {columns.map((c, i) => (
@@ -622,14 +613,14 @@ export default function Home() {
                     <div className="mt-2.5 border-t border-slate-100 pt-2 space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-semibold text-slate-500">
-                          অতিরিক্ত কলামসমূহ:
+                          Additional Columns:
                         </span>
                         <button
                           type="button"
                           onClick={() => setShowColManager(true)}
                           className="text-[10px] text-brand-600 hover:underline font-semibold"
                         >
-                          সব কলাম এডিট করুন
+                          Manage columns
                         </button>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -638,7 +629,7 @@ export default function Home() {
                             <div className="mb-1.5 flex items-center justify-between gap-1.5">
                               <div className="flex items-center gap-1.5 flex-1 min-w-0">
                                 <span className="text-[10px] font-bold text-slate-500 bg-slate-200/80 rounded px-1.5 py-0.5 shrink-0">
-                                  কলাম #{colIdx + 1}
+                                  Col #{colIdx + 1}
                                 </span>
                                 <input
                                   type="text"
@@ -646,12 +637,12 @@ export default function Home() {
                                   onChange={(e) => setHead(colIdx, e.target.value)}
                                   className="text-xs font-semibold text-brand-800 bg-white border border-slate-200 rounded px-1.5 py-0.5 focus:border-brand-500 focus:outline-none w-full"
                                   placeholder={`Column ${colIdx + 1}`}
-                                  title="কলামের নাম এডিট করতে পারেন"
+                                  title="Edit column name"
                                 />
                               </div>
                               <button
                                 type="button"
-                                title="এই কলাম ডিলিট করুন"
+                                title="Remove column"
                                 onClick={() => delCol(colIdx)}
                                 className="shrink-0 h-6 w-6 flex items-center justify-center rounded bg-red-50 text-red-500 hover:bg-red-100 font-bold text-xs"
                               >
