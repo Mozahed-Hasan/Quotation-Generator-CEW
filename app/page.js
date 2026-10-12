@@ -108,12 +108,62 @@ export default function Home() {
 
   const [dragIdx, setDragIdx] = useState(null);
   const [overIdx, setOverIdx] = useState(null);
+  const [dragColIdx, setDragColIdx] = useState(null);
+  const [overColIdx, setOverColIdx] = useState(null);
+  const [touchDrag, setTouchDrag] = useState(null);
+
   const moveRow = (from, to) => {
-    if (from === to) return;
+    if (from === to || from < 0 || to < 0 || from >= rows.length || to >= rows.length) return;
     const next = [...rows];
     const [item] = next.splice(from, 1);
     next.splice(to, 0, item);
     setRows(renumber(next));
+  };
+
+  const moveCol = (from, to) => {
+    if (from === to || from < 0 || to < 0 || from >= columns.length || to >= columns.length) return;
+    const nextCols = [...columns];
+    const [colItem] = nextCols.splice(from, 1);
+    nextCols.splice(to, 0, colItem);
+    setColumns(nextCols);
+
+    const nextRows = rows.map((r) => {
+      const rowArr = [...r];
+      const [cellItem] = rowArr.splice(from, 1);
+      rowArr.splice(to, 0, cellItem);
+      return rowArr;
+    });
+    setRows(nextRows);
+  };
+
+  const handleTouchStart = (idx, type) => (e) => {
+    setTouchDrag({ type, fromIdx: idx, overIdx: idx });
+  };
+
+  const handleTouchMove = (type) => (e) => {
+    if (!touchDrag || touchDrag.type !== type) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!targetEl) return;
+    const itemEl = targetEl.closest(`[data-drag-type="${type}"]`);
+    if (itemEl && itemEl.dataset.dragIndex !== undefined) {
+      const over = parseInt(itemEl.dataset.dragIndex, 10);
+      if (!isNaN(over) && over !== touchDrag.overIdx) {
+        setTouchDrag((prev) => (prev ? { ...prev, overIdx: over } : null));
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchDrag) {
+      const { type, fromIdx, overIdx } = touchDrag;
+      if (fromIdx !== null && overIdx !== null && fromIdx !== overIdx) {
+        if (type === "row") moveRow(fromIdx, overIdx);
+        if (type === "col") moveCol(fromIdx, overIdx);
+      }
+      setTouchDrag(null);
+    }
   };
 
   const fillDemo = () => {
@@ -306,29 +356,80 @@ export default function Home() {
                   <p className="text-[11px] text-slate-500">Type to rename any column or tap ✕ to delete</p>
                 </div>
                 <div className="space-y-1.5 pt-1">
-                  {columns.map((c, i) => (
-                    <div key={i} className="flex items-center gap-2 bg-slate-50/80 p-1.5 rounded-lg border border-slate-200">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white border border-slate-200 text-[10px] font-extrabold text-brand-700 shadow-xs">
-                        {i + 1}
-                      </span>
-                      <input
-                        type="text"
-                        value={c}
-                        onChange={(e) => setHead(i, e.target.value)}
-                        placeholder={`Column ${i + 1}`}
-                        className="input !h-8 text-xs font-semibold !py-1 text-slate-800 flex-1 bg-white"
-                      />
-                      <button
-                        type="button"
-                        title="Remove column"
-                        disabled={columns.length <= 1}
-                        onClick={() => delCol(i)}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-30 disabled:hover:bg-red-50 font-bold transition text-xs"
+                  {columns.map((c, i) => {
+                    const isDragging = dragColIdx === i || (touchDrag?.type === "col" && touchDrag.fromIdx === i);
+                    const isOver = overColIdx === i || (touchDrag?.type === "col" && touchDrag.overIdx === i);
+                    return (
+                      <div
+                        key={i}
+                        data-drag-type="col"
+                        data-drag-index={i}
+                        onDragOver={(e) => {
+                          if (dragColIdx !== null) {
+                            e.preventDefault();
+                            setOverColIdx(i);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (dragColIdx !== null) moveCol(dragColIdx, i);
+                          setDragColIdx(null);
+                          setOverColIdx(null);
+                        }}
+                        className={`flex items-center gap-1.5 p-1.5 rounded-lg border transition ${
+                          isDragging
+                            ? "opacity-50 ring-2 ring-brand-400 bg-brand-50/50 scale-[0.99]"
+                            : isOver
+                            ? "border-brand-500 ring-2 ring-brand-200 bg-brand-50/30"
+                            : "bg-slate-50/80 border-slate-200"
+                        }`}
                       >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
+                        {/* Drag Handle */}
+                        <button
+                          type="button"
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("text/plain", String(i));
+                            setDragColIdx(i);
+                          }}
+                          onDragEnd={() => {
+                            setDragColIdx(null);
+                            setOverColIdx(null);
+                          }}
+                          onTouchStart={handleTouchStart(i, "col")}
+                          onTouchMove={handleTouchMove("col")}
+                          onTouchEnd={handleTouchEnd}
+                          onTouchCancel={handleTouchEnd}
+                          title="Drag up/down to reorder column"
+                          className="cursor-grab active:cursor-grabbing touch-none select-none flex h-7 w-6 shrink-0 items-center justify-center rounded bg-slate-200/70 text-slate-500 hover:bg-brand-100 hover:text-brand-700 transition"
+                        >
+                          <span className="text-sm font-bold leading-none">⠿</span>
+                        </button>
+
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white border border-slate-200 text-[10px] font-extrabold text-brand-700 shadow-xs">
+                          {i + 1}
+                        </span>
+
+                        <input
+                          type="text"
+                          value={c}
+                          onChange={(e) => setHead(i, e.target.value)}
+                          placeholder={`Column ${i + 1}`}
+                          className="input !h-8 text-xs font-semibold !py-1 text-slate-800 flex-1 bg-white min-w-0"
+                        />
+
+                        <button
+                          type="button"
+                          title="Remove column"
+                          disabled={columns.length <= 1}
+                          onClick={() => delCol(i)}
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-30 disabled:hover:bg-red-50 font-bold transition text-xs"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -489,43 +590,69 @@ export default function Home() {
               const handled = new Set([slIdx, descIdx, qtyIdx, unitIdx, rateIdx, subIdx].filter((x) => x >= 0));
               const extraCols = columns.map((_, i) => i).filter((i) => !handled.has(i));
 
+              const isDraggingRow = dragIdx === r || (touchDrag?.type === "row" && touchDrag.fromIdx === r);
+              const isOverRow = overIdx === r || (touchDrag?.type === "row" && touchDrag.overIdx === r);
+
               return (
                 <div
                   key={r}
-                  className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:shadow"
+                  data-drag-type="row"
+                  data-drag-index={r}
+                  onDragOver={(e) => {
+                    if (dragIdx !== null) {
+                      e.preventDefault();
+                      setOverIdx(r);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragIdx !== null) moveRow(dragIdx, r);
+                    setDragIdx(null);
+                    setOverIdx(null);
+                  }}
+                  className={`rounded-xl border bg-white p-3 shadow-sm transition ${
+                    isDraggingRow
+                      ? "opacity-50 ring-2 ring-brand-400 scale-[0.99] bg-brand-50/30"
+                      : isOverRow
+                      ? "border-brand-500 ring-2 ring-brand-200 bg-brand-50/20"
+                      : "border-slate-200 hover:shadow"
+                  }`}
                 >
-                  {/* Top Bar: SL No, Up/Down reorder, Delete */}
+                  {/* Top Bar: Drag handle, SL No, Up/Down reorder, Delete */}
                   <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      {/* Touch & Mouse Drag Handle */}
+                      <button
+                        type="button"
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/plain", String(r));
+                          setDragIdx(r);
+                        }}
+                        onDragEnd={() => {
+                          setDragIdx(null);
+                          setOverIdx(null);
+                        }}
+                        onTouchStart={handleTouchStart(r, "row")}
+                        onTouchMove={handleTouchMove("row")}
+                        onTouchEnd={handleTouchEnd}
+                        onTouchCancel={handleTouchEnd}
+                        title="Drag up/down to reorder row"
+                        className="cursor-grab active:cursor-grabbing touch-none select-none flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-brand-50 hover:text-brand-600 transition"
+                      >
+                        <span className="text-base font-bold leading-none">⠿</span>
+                      </button>
                       <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-50 text-xs font-bold text-brand-700">
                         {row[slIdx] || r + 1}
                       </span>
                       <span className="text-xs font-semibold text-slate-700">Item #{r + 1}</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        title="Move Up"
-                        disabled={r === 0}
-                        onClick={() => moveRow(r, r - 1)}
-                        className="h-7 w-7 rounded border border-slate-200 text-xs text-slate-500 disabled:opacity-30 hover:bg-slate-50"
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        title="Move Down"
-                        disabled={r === rows.length - 1}
-                        onClick={() => moveRow(r, r + 1)}
-                        className="h-7 w-7 rounded border border-slate-200 text-xs text-slate-500 disabled:opacity-30 hover:bg-slate-50"
-                      >
-                        ↓
-                      </button>
+                    <div>
                       <button
                         type="button"
                         title="Remove Row"
                         onClick={() => delRow(r)}
-                        className="ml-1 h-7 w-7 rounded bg-red-50 text-xs font-bold text-red-500 hover:bg-red-100"
+                        className="h-7 w-7 rounded bg-red-50 text-xs font-bold text-red-500 hover:bg-red-100 flex items-center justify-center"
                       >
                         ✕
                       </button>
@@ -599,10 +726,10 @@ export default function Home() {
                         <label className="label">{columns[subIdx]}</label>
                         <input
                           type="text"
-                          readOnly
                           placeholder="0.00"
-                          className="input bg-slate-50 font-semibold text-brand-700 text-xs cursor-default"
+                          className="input font-semibold text-brand-700 text-xs"
                           value={row[subIdx] ?? ""}
+                          onChange={(e) => setCell(r, subIdx, e.target.value)}
                         />
                       </div>
                     )}

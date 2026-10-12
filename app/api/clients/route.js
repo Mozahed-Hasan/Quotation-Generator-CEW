@@ -18,7 +18,7 @@ export async function POST(req) {
     const name = body.name?.trim();
     const type = body.type === "client" ? "client" : "dealer";
     if (!name) {
-      return NextResponse.json({ error: "নাম দেওয়া আবশ্যক" }, { status: 400 });
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
     await upsertClient(name, type);
     return NextResponse.json({ ok: true });
@@ -32,7 +32,7 @@ export async function DELETE(req) {
     const { searchParams } = new URL(req.url);
     const name = searchParams.get("name");
     if (!name) {
-      return NextResponse.json({ error: "নাম প্রয়োজন" }, { status: 400 });
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
     await deleteClientEntries(name);
     return NextResponse.json({ ok: true });

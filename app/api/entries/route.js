@@ -17,10 +17,12 @@ export async function POST(req) {
     const b = await req.json();
     const amount = Number(b.amount);
     if (!b.client_name?.trim() || !(amount > 0) || !["bill", "payment"].includes(b.type)) {
-      return NextResponse.json({ error: "তথ্য সঠিক নয়" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid entry data" }, { status: 400 });
     }
     const weight = b.weight === "" || b.weight == null ? null : Number(b.weight);
     const date = b.entry_date || new Date().toISOString().slice(0, 10);
+    const labour_cost = b.labour_cost === "" || b.labour_cost == null ? null : Number(b.labour_cost);
+    const transport_cost = b.transport_cost === "" || b.transport_cost == null ? null : Number(b.transport_cost);
 
     await createEntry({
       entry_date: date,
@@ -32,6 +34,9 @@ export async function POST(req) {
       from_bank: b.from_bank || null,
       to_bank: b.to_bank || null,
       note: b.note || null,
+      items: Array.isArray(b.items) ? b.items : null,
+      labour_cost,
+      transport_cost,
     });
     return NextResponse.json({ ok: true });
   } catch (e) {
@@ -44,7 +49,7 @@ export async function DELETE(req) {
     const { searchParams } = new URL(req.url);
     const clientName = searchParams.get("client_name");
     if (!clientName) {
-      return NextResponse.json({ error: "ক্লায়েন্টের নাম প্রয়োজন" }, { status: 400 });
+      return NextResponse.json({ error: "Client name is required" }, { status: 400 });
     }
     await deleteClientEntries(clientName);
     return NextResponse.json({ ok: true });

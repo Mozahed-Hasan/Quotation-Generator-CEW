@@ -19,24 +19,30 @@ export default function Login() {
       router.replace("/bill-calculator");
       router.refresh();
     } else {
-      setErr("পাসওয়ার্ড ভুল");
+      setErr("Incorrect password");
     }
   }
 
   return (
     <main className="login">
       <form className="card" onSubmit={submit}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h1 style={{ fontSize: "1.5rem" }}>বিল ক্যালকুলেটর</h1>
-          <Link href="/" style={{ color: "var(--accent2)", fontSize: "0.85rem", textDecoration: "none" }}>
-            ← কোটেশন জেনারেটর
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 10, flexWrap: "wrap" }}>
+          <div className="header-brand">
+            <div className="header-logo-box" style={{ width: 42, height: 42, padding: 5, borderRadius: 10 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/cew-icon.png" alt="CEW Logo" />
+            </div>
+            <h1 className="header-title" style={{ fontSize: "1.3rem" }}>Bill Calculator</h1>
+          </div>
+          <Link href="/" className="header-btn" title="Back to Quotation Generator">
+            <span style={{ fontSize: "0.85rem", lineHeight: 1 }}>←</span> Quotation Generator
           </Link>
         </div>
-        <p className="sub" style={{ marginBottom: 18 }}>চালিয়ে যেতে পাসওয়ার্ড দিন</p>
-        <label htmlFor="pw">পাসওয়ার্ড</label>
+        <p className="sub" style={{ marginBottom: 18 }}>Enter password to continue</p>
+        <label htmlFor="pw">Password</label>
         <input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
         {err && <p className="err">{err}</p>}
-        <button id="login-btn" className="btn" style={{ width: "100%", marginTop: 14 }}>লগইন</button>
+        <button id="login-btn" className="btn" style={{ width: "100%", marginTop: 14 }}>Log In</button>
       </form>
     </main>
   );

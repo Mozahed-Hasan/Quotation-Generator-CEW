@@ -6,7 +6,7 @@ export async function POST(req) {
   const validPassword = process.env.APP_PASSWORD || "admin123";
 
   if (password !== validPassword) {
-    return NextResponse.json({ error: "পাসওয়ার্ড ভুল" }, { status: 401 });
+    return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
   }
 
   const res = NextResponse.json({ ok: true });
