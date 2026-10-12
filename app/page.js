@@ -43,6 +43,7 @@ export default function Home() {
   const [nbs, setNbs] = useState([""]);
   const [regards, setRegards] = useState(REGARDS_PRESETS[1].text);
   const [busy, setBusy] = useState(false);
+  const [showColManager, setShowColManager] = useState(false);
 
   // Fill today's date + next serial on load (client only, avoids hydration mismatch)
   useEffect(() => {
@@ -61,6 +62,7 @@ export default function Home() {
   const addCol = () => {
     setColumns([...columns, `Column ${columns.length + 1}`]);
     setRows(rows.map((r) => [...r, ""]));
+    setShowColManager(true);
   };
   const delCol = (i) => {
     if (columns.length <= 1) return;
@@ -274,9 +276,72 @@ export default function Home() {
               <button type="button" id="addRow" onClick={addRow} className="btn btn-ghost text-xs sm:text-sm">+ Row</button>
             </div>
           </div>
-          <p className="mb-2.5 sm:mb-3 text-[11px] sm:text-xs text-slate-500">
+          <p className="hidden sm:block mb-2.5 sm:mb-3 text-[11px] sm:text-xs text-slate-500">
             Edit column titles in the header row. Use the descriptions/sizes in the cells below.
           </p>
+
+          {/* Mobile Column & Header Manager */}
+          <div className="block sm:hidden mb-3">
+            <button
+              type="button"
+              onClick={() => setShowColManager(!showColManager)}
+              className="flex w-full items-center justify-between rounded-xl border border-brand-200 bg-brand-50/70 px-3 py-2.5 text-xs font-semibold text-brand-800 transition hover:bg-brand-100 shadow-xs"
+            >
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 text-brand-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span>কলাম ও হেডার এডিট ({columns.length}টি কলাম)</span>
+              </div>
+              <span className="text-[11px] font-bold text-brand-700 bg-white border border-brand-200 px-2 py-0.5 rounded-full shadow-xs">
+                {showColManager ? "লুকান ▲" : "এডিট করুন ▼"}
+              </span>
+            </button>
+
+            {showColManager && (
+              <div className="mt-2 space-y-2 rounded-xl border border-brand-200 bg-white p-3 shadow-md">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-800">হেডারের নাম ও কলাম লিস্ট</h3>
+                    <p className="text-[10px] text-slate-500">নাম পরিবর্তন করতে টাইপ করুন অথবা ✕ চাপুন</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addCol}
+                    className="text-[11px] font-bold text-brand-700 bg-brand-50 border border-brand-300 rounded-lg px-2.5 py-1 shadow-xs hover:bg-brand-100 flex items-center gap-1"
+                  >
+                    <span>+</span> কলাম যোগ করুন
+                  </button>
+                </div>
+                <div className="space-y-1.5 pt-1">
+                  {columns.map((c, i) => (
+                    <div key={i} className="flex items-center gap-2 bg-slate-50/80 p-1.5 rounded-lg border border-slate-200">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white border border-slate-200 text-[10px] font-extrabold text-brand-700 shadow-xs">
+                        {i + 1}
+                      </span>
+                      <input
+                        type="text"
+                        value={c}
+                        onChange={(e) => setHead(i, e.target.value)}
+                        placeholder={`Column ${i + 1}`}
+                        className="input !h-8 text-xs font-semibold !py-1 text-slate-800 flex-1 bg-white"
+                      />
+                      <button
+                        type="button"
+                        title="Remove column"
+                        disabled={columns.length <= 1}
+                        onClick={() => delCol(i)}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-30 disabled:hover:bg-red-50 font-bold transition text-xs"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           {/* Desktop Table View (Hidden on Mobile) */}
           <div className="hidden sm:block overflow-x-auto rounded-xl ring-1 ring-slate-200">
             <table className="w-full min-w-[850px] border-collapse text-sm">
@@ -554,18 +619,55 @@ export default function Home() {
 
                   {/* Any extra custom columns */}
                   {extraCols.length > 0 && (
-                    <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2">
-                      {extraCols.map((colIdx) => (
-                        <div key={colIdx}>
-                          <label className="label">{columns[colIdx]}</label>
-                          <input
-                            type="text"
-                            className="input text-xs"
-                            value={row[colIdx] ?? ""}
-                            onChange={(e) => setCell(r, colIdx, e.target.value)}
-                          />
-                        </div>
-                      ))}
+                    <div className="mt-2.5 border-t border-slate-100 pt-2 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-slate-500">
+                          অতিরিক্ত কলামসমূহ:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowColManager(true)}
+                          className="text-[10px] text-brand-600 hover:underline font-semibold"
+                        >
+                          সব কলাম এডিট করুন
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {extraCols.map((colIdx) => (
+                          <div key={colIdx} className="rounded-lg bg-slate-50 p-2 border border-slate-200">
+                            <div className="mb-1.5 flex items-center justify-between gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                <span className="text-[10px] font-bold text-slate-500 bg-slate-200/80 rounded px-1.5 py-0.5 shrink-0">
+                                  কলাম #{colIdx + 1}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={columns[colIdx]}
+                                  onChange={(e) => setHead(colIdx, e.target.value)}
+                                  className="text-xs font-semibold text-brand-800 bg-white border border-slate-200 rounded px-1.5 py-0.5 focus:border-brand-500 focus:outline-none w-full"
+                                  placeholder={`Column ${colIdx + 1}`}
+                                  title="কলামের নাম এডিট করতে পারেন"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                title="এই কলাম ডিলিট করুন"
+                                onClick={() => delCol(colIdx)}
+                                className="shrink-0 h-6 w-6 flex items-center justify-center rounded bg-red-50 text-red-500 hover:bg-red-100 font-bold text-xs"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            <input
+                              type="text"
+                              className="input text-xs bg-white"
+                              placeholder={`Enter ${columns[colIdx]}`}
+                              value={row[colIdx] ?? ""}
+                              onChange={(e) => setCell(r, colIdx, e.target.value)}
+                            />
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
