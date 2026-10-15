@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { COMPANY } from "@/lib/company";
-import { generatePdf } from "@/lib/pdf";
+import { generatePdf, extractQuotationFromPdf } from "@/lib/pdf";
 import { takaInWords } from "@/lib/words";
 
 const CO = "Chowdhury Engineering Works";
@@ -44,6 +44,9 @@ export default function Home() {
   const [regards, setRegards] = useState(REGARDS_PRESETS[1].text);
   const [busy, setBusy] = useState(false);
   const [showColManager, setShowColManager] = useState(false);
+  const [editingLoadedPdfName, setEditingLoadedPdfName] = useState(null);
+  const [pdfUploadLoading, setPdfUploadLoading] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   // Fill today's date + next serial on load (client only, avoids hydration mismatch)
   useEffect(() => {
@@ -202,6 +205,48 @@ export default function Home() {
     setRegards(REGARDS_PRESETS[1].text);
   };
 
+  const handleUploadPdfToEdit = async (file) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      alert("অনুগ্রহ করে একটি .pdf ফাইল সিলেক্ট করুন।");
+      return;
+    }
+    setPdfUploadLoading(true);
+    try {
+      const data = await extractQuotationFromPdf(file);
+      if (data.quote) {
+        setQuote(data.quote);
+        setNoEdited(true);
+      }
+      if (data.client) setClient(data.client);
+      if (Array.isArray(data.columns) && data.columns.length > 0) setColumns(data.columns);
+      if (Array.isArray(data.rows) && data.rows.length > 0) setRows(data.rows);
+      if (data.total !== undefined && data.total !== null) setTotalInput(data.total);
+      if (Array.isArray(data.nbs)) setNbs(data.nbs);
+      if (data.regards) setRegards(data.regards);
+
+      setEditingLoadedPdfName(file.name);
+    } catch (err) {
+      console.error("Failed to load PDF:", err);
+      alert(err.message || "পিডিএফ ফাইলটি লোড করা সম্ভব হয়নি।");
+    } finally {
+      setPdfUploadLoading(false);
+    }
+  };
+
+  const resetToNewQuotation = () => {
+    setEditingLoadedPdfName(null);
+    const d = today();
+    setQuote({ date: d, no: autoNo(d) });
+    setNoEdited(false);
+    setClient({ name: "", company: "", phone: "", email: "", address: "", customText: "" });
+    setColumns(["SL No.", "Product Description", "Qty", "Unit", "Rate", "Sub-Total"]);
+    setRows([["1", "", "", "", "", ""]]);
+    setTotalInput(null);
+    setNbs([""]);
+    setRegards(REGARDS_PRESETS[1].text);
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -213,7 +258,8 @@ export default function Home() {
         const map = readSeq();
         map[m[1]] = Math.max(map[m[1]] || 0, Number(m[2]));
         localStorage.setItem(SEQ_KEY, JSON.stringify(map));
-        if (m[1] === ymd(quote.date || "")) {
+        // If not editing an existing loaded PDF, auto-advance serial
+        if (!editingLoadedPdfName && m[1] === ymd(quote.date || "") && !noEdited) {
           setNoEdited(false);
           setQuote({ date: quote.date, no: autoNo(quote.date) });
         }
@@ -224,7 +270,25 @@ export default function Home() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl px-3 py-4 sm:px-6 sm:py-8">
+    <div
+      className={`mx-auto max-w-5xl px-3 py-4 sm:px-6 sm:py-8 transition-all ${
+        isDraggingOver ? "bg-blue-50/80 ring-4 ring-blue-400 ring-dashed rounded-3xl" : ""
+      }`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDraggingOver(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        setIsDraggingOver(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDraggingOver(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) handleUploadPdfToEdit(file);
+      }}
+    >
       <header className="mb-5 sm:mb-8 flex flex-wrap items-center justify-between gap-3 rounded-xl sm:rounded-2xl bg-white/90 p-3.5 sm:p-5 shadow-md sm:shadow-lg shadow-indigo-100/60 ring-1 ring-slate-200 backdrop-blur">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 sm:h-16 sm:w-16 shrink-0 items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-br from-red-50 to-rose-100 p-1.5 sm:p-2 shadow-sm ring-1 ring-red-200">
@@ -240,7 +304,31 @@ export default function Home() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
+          {/* Upload PDF to Edit Button */}
+          <label
+            className="btn btn-ghost shadow-sm ring-1 ring-blue-300 hover:ring-blue-400 bg-blue-50/90 text-blue-700 hover:bg-blue-100 transition cursor-pointer flex items-center gap-1.5"
+            title="Upload previously downloaded quotation PDF to restore all data for quick editing"
+          >
+            <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            <span className="text-xs sm:text-sm font-semibold">
+              {pdfUploadLoading ? "Loading PDF…" : "Upload PDF to Edit"}
+            </span>
+            <input
+              type="file"
+              accept=".pdf"
+              className="hidden"
+              disabled={pdfUploadLoading}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUploadPdfToEdit(file);
+                e.target.value = "";
+              }}
+            />
+          </label>
+
           <Link
             href="/bill-entry"
             className="btn btn-ghost shadow-sm ring-1 ring-slate-200 hover:ring-brand-300 text-slate-700 hover:text-brand-700 transition"
@@ -274,6 +362,33 @@ export default function Home() {
           </button>
         </div>
       </header>
+
+      {/* Editing Loaded Quotation Notice Banner */}
+      {editingLoadedPdfName && (
+        <div className="mb-4 sm:mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-gradient-to-r from-blue-50 via-sky-50 to-indigo-50 border-2 border-blue-200 p-3 sm:p-4 text-sm text-blue-950 shadow-sm animate-fadeIn">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white shadow-xs">
+              ✓
+            </span>
+            <div>
+              <p className="font-semibold text-blue-900 leading-tight">
+                Editing Loaded Quotation: <span className="font-mono bg-blue-100/90 text-blue-900 px-2 py-0.5 rounded text-xs sm:text-sm">{editingLoadedPdfName}</span>
+              </p>
+              <p className="text-xs text-blue-700 mt-0.5">
+                কোটেশনের সমস্ত ডাটা ফর্মে লোড হয়েছে। প্রয়োজনীয় পরিবর্তন করে নিচে "Download PDF" বাটনে ক্লিক করুন।
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={resetToNewQuotation}
+            className="btn btn-ghost text-xs font-semibold text-rose-600 hover:text-rose-700 bg-white/90 hover:bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg transition shadow-xs"
+            title="Clear all fields and start a fresh blank quotation"
+          >
+            ✕ Start New Quotation
+          </button>
+        </div>
+      )}
 
       <form onSubmit={submit} className="space-y-4 sm:space-y-6" autoComplete="off">
         <section className="card">
