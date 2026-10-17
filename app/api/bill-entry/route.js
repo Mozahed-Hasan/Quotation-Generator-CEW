@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCustomerBills, createCustomerBill, getCustomers, deleteCustomerById, getRecycleBinItems } from "@/lib/db";
+import { getCustomerBills, createCustomerBill, updateCustomerBill, getCustomers, deleteCustomerById, getRecycleBinItems } from "@/lib/db";
 
 export async function GET(req) {
   try {
@@ -81,3 +81,41 @@ export async function DELETE(req) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
+export async function PUT(req) {
+  try {
+    const body = await req.json();
+    const { id, ...data } = body;
+    if (!id) {
+      return NextResponse.json({ error: "Bill ID is required" }, { status: 400 });
+    }
+    if (!data.customer_name || !data.customer_name.trim()) {
+      return NextResponse.json({ error: "Customer Name is required" }, { status: 400 });
+    }
+    if (!data.customer_mobile || !data.customer_mobile.trim()) {
+      return NextResponse.json({ error: "Customer Mobile number is required" }, { status: 400 });
+    }
+
+    await updateCustomerBill(id, {
+      bill_date: data.bill_date,
+      bill_no: data.bill_no,
+      customer_name: data.customer_name.trim(),
+      customer_address: data.customer_address ? data.customer_address.trim() : "",
+      customer_mobile: data.customer_mobile ? data.customer_mobile.trim() : "",
+      customer_id: data.customer_id ? data.customer_id.trim() : "",
+      items: Array.isArray(data.items) ? data.items : [],
+      labour_charge: Number(data.labour_charge || 0),
+      transport_cost: Number(data.transport_cost || 0),
+      discount: Number(data.discount || 0),
+      total_bill: Number(data.total_bill || 0),
+      client_payment: Number(data.client_payment || 0),
+      due_advance: Number(data.due_advance || 0),
+      note: data.note ? data.note.trim() : "",
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+

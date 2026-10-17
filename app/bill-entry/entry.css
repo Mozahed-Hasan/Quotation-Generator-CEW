@@ -26,7 +26,7 @@
   color: var(--be-text-main);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   padding: 16px 20px 48px;
-  max-width: 1300px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 
@@ -554,28 +554,29 @@
   overflow-x: auto;
   border: 1px solid var(--be-border);
   border-radius: 12px;
+  background: #ffffff;
 }
 
 .be-ledger-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.88rem;
+  font-size: 0.84rem;
 }
 
 .be-ledger-table th {
   background: #f8fafc;
   color: #475569;
   font-weight: 700;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 12px 14px;
+  letter-spacing: 0.03em;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--be-border);
   white-space: nowrap;
 }
 
 .be-ledger-table td {
-  padding: 11px 14px;
+  padding: 9px 8px;
   border-bottom: 1px solid #f1f5f9;
   vertical-align: middle;
 }
@@ -583,6 +584,76 @@
 .be-ledger-table tr:hover {
   background: #fbfcfe;
 }
+
+.be-ledger-table tfoot td {
+  background: #f8fafc !important;
+  border-top: 2px solid #cbd5e1;
+  border-bottom: 2px solid #cbd5e1;
+  padding: 12px 8px;
+  vertical-align: middle;
+}
+
+/* Interactive Table Rows for Order Details */
+.be-row-interactive {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.be-row-interactive:hover td {
+  background-color: #f1f5f9 !important;
+}
+
+.be-row-interactive.expanded td {
+  background-color: #e2e8f0 !important;
+}
+
+.be-view-row-btn {
+  border: none;
+  background: #eff6ff;
+  color: #2563eb;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.be-view-row-btn:hover {
+  background: #2563eb;
+  color: #ffffff;
+  transform: scale(1.06);
+}
+
+/* Print Invoice Styles */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .be-printable-modal, .be-printable-modal * {
+    visibility: visible;
+  }
+  .be-printable-modal {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 16px !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+  }
+  .be-modal-close-btn, .be-modal-footer-btns {
+    display: none !important;
+  }
+}
+
+
 
 /* Login Page Styles */
 .entry-login-wrap {
@@ -811,7 +882,7 @@
   background: #ffffff;
   border-radius: 16px;
   width: 100%;
-  max-width: 1050px;
+  max-width: 1200px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -1604,5 +1675,54 @@
   font-size: 0.85rem;
   color: #64748b;
   max-width: 360px;
+}
+
+/* Unified Customer Ledger Table */
+.be-cust-ledger-wrap {
+  overflow-x: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.be-cust-ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  min-width: 860px;
+}
+
+.be-cust-ledger-table th {
+  background: #f1f5f9;
+  padding: 10px 10px;
+  font-weight: 700;
+  color: #334155;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 2px solid #cbd5e1;
+  border-right: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.be-cust-ledger-table th:last-child {
+  border-right: none;
+}
+
+.be-cust-ledger-table td {
+  font-size: 0.82rem;
+}
+
+.be-cust-ledger-table tr.be-ledger-row:hover td {
+  background: #f0fdf4 !important;
+}
+
+.be-cust-ledger-table tfoot td {
+  background: #f8fafc;
+  padding: 10px 10px;
+  font-weight: 800;
+  border-top: 2px solid #cbd5e1;
+  color: #0f172a;
 }
 

@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Quotation Generator | CEW",
-  description: "Create and download professional PDF quotations with custom columns and rows.",
+  title: "Chowdhury Engineering Works | CEW Portal",
+  description: "Management Portal: Quotation Generator, Purchase, Sales, Expense and Admin Control Panel.",
 };
 
 export default function RootLayout({ children }) {

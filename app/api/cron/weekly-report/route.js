@@ -271,7 +271,7 @@ export async function GET(req) {
           </div>
 
           <p style="font-size: 13px; color: #64748b;">
-            📎 The complete multi-sheet Excel file <strong>(${fileName})</strong> is attached with this email containing individual sheets for all registered dealers and clients.
+            <strong>Attachment:</strong> The complete multi-sheet Excel file <strong>(${fileName})</strong> is attached with this email containing individual sheets for all registered dealers and suppliers.
           </p>
           
           <hr style="border: none; border-top: 1px solid #e2e8f0; margin-top: 24px;" />

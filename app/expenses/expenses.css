@@ -1,0 +1,683 @@
+/* Extras for Expense page – builds on entry.css design tokens */
+.ex-period-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.ex-nav-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ex-arrow {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--be-border);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 800;
+  color: #334155;
+  transition: all 0.15s;
+}
+
+.ex-arrow:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.ex-range-label {
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--be-primary);
+  min-width: 190px;
+  text-align: center;
+}
+
+.ex-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.ex-bar-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 150px;
+  gap: 12px;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.ex-bar-track {
+  height: 10px;
+  background: #f1f5f9;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.ex-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #991b1b, #dc2626);
+  border-radius: 99px;
+  transition: width 0.4s ease;
+}
+
+.ex-cat-tag {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 99px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  background: var(--be-primary-light);
+  color: var(--be-primary);
+  border: 1px solid #fecaca;
+}
+
+.ex-empty {
+  text-align: center;
+  padding: 36px 12px;
+  color: var(--be-text-muted);
+  font-size: 0.9rem;
+}
+
+.ex-day-row td {
+  background: #f8fafc;
+  font-weight: 800;
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.ex-tfoot td {
+  background: #f8fafc;
+  font-weight: 700;
+  color: #1e293b;
+  border-top: 2px solid #cbd5e1;
+}
+
+.ex-tfoot tr.ex-tfoot-expense td {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.ex-tfoot tr.ex-tfoot-deposit td {
+  background: #f0fdf4;
+  color: #166534;
+  border-top: 1px solid #dcfce7;
+}
+
+.ex-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.ex-filters .be-input {
+  max-width: 260px;
+}
+
+@media (max-width: 640px) {
+  .ex-bar-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .ex-range-label {
+    min-width: 0;
+  }
+}
+
+/* Paid To Autocomplete Dropdown & Ledger Sync */
+.ex-paidto-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.ex-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 100;
+  padding: 6px;
+}
+
+.ex-dropdown-header {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  padding: 6px 10px 4px;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 4px;
+}
+
+.ex-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 0.88rem;
+  color: #1e293b;
+  gap: 8px;
+}
+
+.ex-dropdown-item:hover,
+.ex-dropdown-item.active {
+  background: #f8fafc;
+  color: #991b1b;
+}
+
+.ex-dropdown-empty {
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  color: #94a3b8;
+  font-style: italic;
+  text-align: center;
+}
+
+.ex-tag-dealer {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.ex-tag-supplier {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.ex-tag-staff {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #fdf2f8;
+  color: #be185d;
+  border: 1px solid #fbcfe8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+/* Ledger Sync Banner */
+.ex-sync-box {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.84rem;
+  color: #166534;
+}
+
+.ex-sync-box.manual-prompt {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+.ex-sync-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ex-sync-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #16a34a;
+  cursor: pointer;
+}
+
+.ex-bank-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #fdf2f2;
+  border: 1px dashed #fca5a5;
+  border-radius: 10px;
+}
+
+@media (max-width: 640px) {
+  .ex-bank-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ex-ledger-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.ex-method-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+}
+
+.ex-method-pill.bank {
+  background: #eff6ff;
+  color: #1e40af;
+  border-color: #bfdbfe;
+}
+
+/* Excel Import Modal & Dropzone */
+.ex-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: exFadeIn 0.2s ease-out;
+}
+
+@keyframes exFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ex-modal {
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  width: 100%;
+  max-width: 900px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: exSlideUp 0.25s ease-out;
+}
+
+@keyframes exSlideUp {
+  from { transform: translateY(15px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.ex-modal-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+}
+
+.ex-modal-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #991b1b;
+  margin: 0;
+}
+
+.ex-modal-subtitle {
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.ex-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.ex-modal-close:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.ex-modal-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.ex-dropzone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 28px 16px;
+  text-align: center;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.ex-dropzone:hover,
+.ex-dropzone.drag-active {
+  border-color: #991b1b;
+  background: #fef2f2;
+}
+
+.ex-dropzone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ex-dropzone-icon {
+  font-size: 2.2rem;
+  margin-bottom: 8px;
+  color: #991b1b;
+}
+
+.ex-dropzone-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+
+.ex-dropzone-desc {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.ex-modal-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.ex-preview-wrap {
+  margin-top: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ex-preview-header {
+  padding: 10px 14px;
+  background: #f1f5f9;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.ex-preview-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.ex-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.ex-preview-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+}
+
+.ex-preview-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+}
+
+.ex-preview-table tr:hover td {
+  background: #f8fafc;
+}
+
+.ex-modal-footer {
+  padding: 14px 24px;
+  border-top: 1px solid #f1f5f9;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn-import-open {
+  background: #0f766e !important;
+  color: #ffffff !important;
+  border-color: #0f766e !important;
+}
+
+.btn-import-open:hover {
+  background: #115e59 !important;
+  border-color: #115e59 !important;
+}
+
+/* Clickable table rows */
+.ex-row-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.ex-row-clickable:hover td {
+  background-color: #f1f5f9 !important;
+}
+
+/* Expense Details & Edit Modal */
+.ex-detail-amount-card {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ex-detail-amount-val {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #991b1b;
+}
+
+.ex-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.ex-detail-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.ex-detail-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.ex-detail-value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+/* Fund Movement & Bank Deposit Styles */
+.ex-cat-tag.deposit {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+
+.ex-deposit-sub {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #059669;
+  letter-spacing: 0.01em;
+  margin-top: 2px;
+}
+
+.be-stat-card.deposit {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.be-stat-card.deposit .label {
+  color: #166534;
+}
+.be-stat-card.deposit .val {
+  color: #15803d;
+}
+
+.be-stat-card.bank {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.be-stat-card.bank .label {
+  color: #1e40af;
+}
+.be-stat-card.bank .val {
+  color: #1d4ed8;
+}
+
+.be-stat-card.outflow {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+.be-stat-card.outflow .label {
+  color: #475569;
+}
+.be-stat-card.outflow .val {
+  color: #0f172a;
+}
+
+.ex-bank-widget {
+  background: #ffffff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.05);
+}
+
+.ex-bank-widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ex-bank-widget-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #1e3a8a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ex-bank-pill-list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ex-bank-pill-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+}
+
+
+
