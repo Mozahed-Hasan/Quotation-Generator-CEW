@@ -70,9 +70,11 @@ export async function PUT(req) {
 
 export async function DELETE(req) {
   try {
-    const id = new URL(req.url).searchParams.get("id");
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID is required" }, { status: 400 });
-    await deleteExpense(id);
+    const permanent = searchParams.get("permanent") === "true";
+    await deleteExpense(id, permanent);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });

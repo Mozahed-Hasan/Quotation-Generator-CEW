@@ -2437,6 +2437,28 @@ export default function Home() {
                             </button>
                           </div>
 
+                          {/* Column Headings */}
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "1.8fr 1fr 0.9fr 1fr 1.1fr 24px",
+                              gap: 6,
+                              padding: "0 8px 4px 8px",
+                              fontSize: "0.72rem",
+                              fontWeight: 700,
+                              color: "#64748b",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.03em",
+                            }}
+                          >
+                            <span>Item Name</span>
+                            <span>Qty / Weight</span>
+                            <span style={{ textAlign: "center" }}>Unit</span>
+                            <span>Rate (৳)</span>
+                            <span>Total (৳)</span>
+                            <span></span>
+                          </div>
+
                           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                             {editModalData.items.map((it, idx) => (
                               <div

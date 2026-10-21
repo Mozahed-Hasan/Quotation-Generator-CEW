@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readSession, SESSION_COOKIE, can } from "@/lib/auth";
 import {
   getAllSystemEntries,
+  getUnifiedRecycleBin,
   updateSystemEntryStatus,
   updateSystemEntry,
   deleteSystemEntry,
@@ -25,8 +26,15 @@ export async function GET(req) {
       return NextResponse.json({ error: "Forbidden: Access denied" }, { status: 403 });
     }
 
-    const entries = await getAllSystemEntries();
-    return NextResponse.json({ entries, user: { username: session.username, role: session.role } });
+    const [entries, recycleBin] = await Promise.all([
+      getAllSystemEntries(),
+      getUnifiedRecycleBin(),
+    ]);
+    return NextResponse.json({
+      entries,
+      recycleBin,
+      user: { username: session.username, role: session.role },
+    });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -91,11 +99,12 @@ export async function DELETE(req) {
     const { searchParams } = new URL(req.url);
     const source = searchParams.get("source");
     const id = searchParams.get("id");
+    const permanent = searchParams.get("permanent") === "true";
     if (!source || !id) {
       return NextResponse.json({ error: "Missing source or id" }, { status: 400 });
     }
 
-    await deleteSystemEntry(source, id);
+    await deleteSystemEntry(source, id, permanent, session.username);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });

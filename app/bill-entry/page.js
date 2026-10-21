@@ -4,20 +4,170 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { takaInWords } from "@/lib/words";
 import * as XLSX from "xlsx";
-import { XIcon, CheckIcon } from "@/lib/icons";
+import { XIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, BarChartIcon } from "@/lib/icons";
+
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+const KPI_MODES = [
+  { key: "day", label: "Daily" },
+  { key: "week", label: "Weekly" },
+  { key: "month", label: "Monthly" },
+  { key: "year", label: "Yearly" },
+  { key: "all", label: "All Time" },
+];
+
+const pad = (n) => String(n).padStart(2, "0");
+const toStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const fromStr = (s) => {
+  const [y, m, d] = (s || "").split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+};
+const addDays = (s, n) => {
+  const d = fromStr(s);
+  d.setDate(d.getDate() + n);
+  return toStr(d);
+};
+// Week runs Saturday -> Friday
+const weekStart = (s) => {
+  const d = fromStr(s || today());
+  const daysSinceSat = (d.getDay() + 1) % 7;
+  return addDays(toStr(d), -daysSinceSat);
+};
+const prettyDate = (s) => {
+  if (!s) return "";
+  const parts = s.split("-");
+  if (parts.length !== 3) return s;
+  const [y, m, d] = parts.map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (isNaN(dt.getTime())) return s;
+  return `${pad(dt.getDate())} ${MONTHS[dt.getMonth()].slice(0, 3)} ${dt.getFullYear()}`;
+};
+
+function getKpiRange(mode, ref) {
+  const d = fromStr(ref || today());
+  if (mode === "day") return { from: ref, to: ref, label: `${DAYS[d.getDay()]}, ${prettyDate(ref)}` };
+  if (mode === "week") {
+    const from = weekStart(ref || today());
+    const to = addDays(from, 6);
+    return { from, to, label: `Sat, ${prettyDate(from)} – Fri, ${prettyDate(to)}` };
+  }
+  if (mode === "month") {
+    const from = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+    const to = toStr(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+    return { from, to, label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}` };
+  }
+  if (mode === "year") {
+    return { from: `${d.getFullYear()}-01-01`, to: `${d.getFullYear()}-12-31`, label: String(d.getFullYear()) };
+  }
+  return { from: "0000-01-01", to: "9999-12-31", label: "All Time" };
+}
+
+function shiftKpiRef(mode, ref, dir) {
+  const d = fromStr(ref || today());
+  if (mode === "day") return addDays(ref, dir);
+  if (mode === "week") {
+    const start = weekStart(ref || today());
+    return addDays(start, 7 * dir);
+  }
+  if (mode === "month") return toStr(new Date(d.getFullYear(), d.getMonth() + dir, 1));
+  if (mode === "year") return toStr(new Date(d.getFullYear() + dir, 0, 1));
+  return ref;
+}
 
 const ITEM_PRESETS = [
-  "Matte Sheet",
-  "GP Sheet",
-  "MS Sheet",
-  "Color Coil",
-  "Profile Sheet",
-  "Iron Item",
-  "Insulation",
-  "Screw",
-  "Gum Tape",
+  "Design Sheet",
+  "Plain Sheet Matte",
+  "GP Door Frame",
   "Cork Sheet",
+  "Bata",
+  "Palla Mojuri",
+  "Iron Item",
+  "Making Charge",
+  "Profile Sheet Local",
+  "Profile Sheet Imported",
+  "Canopy",
+  "Insulation",
+  'Screw 2" China',
+  'Screw 1" China',
+  'Screw 2" Taiwan',
+  'Screw 1" Taiwan',
+  "Gum Tape",
+  "Side Cap",
+  "Tua",
+  "Drain",
+  "Almari",
+  "Metal Bed",
+  "Table",
+  "Dolna",
+  "Trunk",
+  "Metal Furniture",
+  "Laser Cutting Charge",
+  "Box Metal Door",
+  "Single Metal Door",
+  "PVC Door",
+  "Metal Gate",
+  "Lasercutting Metal Gate",
+  "Thai Window Grill",
+  "Sheet Window",
+  "Mobile Window",
+  "MS Sheet",
+  "GP Sheet",
+  "C-Purlin",
+  "Decking Sheet",
+  "Transportation",
 ];
+
+const ITEM_SUGGESTED_UNIT = {
+  "design sheet": "pcs",
+  "plain sheet matte": "pcs",
+  "gp door frame": "pcs",
+  "cork sheet": "pcs",
+  "bata": "pcs",
+  "palla mojuri": "pcs",
+  "iron item": "kg",
+  "making charge": "pcs",
+  "profile sheet local": "sft",
+  "profile sheet imported": "sft",
+  "canopy": "sft",
+  "insulation": "sft",
+  'screw 2" china': "pcs",
+  'screw 1" china': "pcs",
+  'screw 2" taiwan': "pcs",
+  'screw 1" taiwan': "pcs",
+  "gum tape": "pcs",
+  "side cap": "rft",
+  "tua": "rft",
+  "drain": "rft",
+  "almari": "kg",
+  "metal bed": "pcs",
+  "table": "pcs",
+  "dolna": "pcs",
+  "trunk": "pcs",
+  "metal furniture": "pcs",
+  "laser cutting charge": "sft",
+  "box metal door": "kg",
+  "single metal door": "kg",
+  "pvc door": "pcs",
+  "metal gate": "kg",
+  "lasercutting metal gate": "sft",
+  "thai window grill": "kg",
+  "sheet window": "kg",
+  "mobile window": "kg",
+  "ms sheet": "kg",
+  "gp sheet": "kg",
+  "c-purlin": "kg",
+  "decking sheet": "kg",
+  "transportation": "trip",
+};
+
+const getSuggestedUnit = (name) => {
+  if (!name) return "";
+  const cleaned = String(name).trim().toLowerCase().replace(/[”"″]/g, '"');
+  return ITEM_SUGGESTED_UNIT[cleaned] || "";
+};
 
 const MONTH_SHORT = [
   "Jan",
@@ -42,22 +192,20 @@ const today = () => {
 
 const ymd = (d) => (d || "").replace(/-/g, "");
 
-// Generate Unique Customer ID: CID-MONTH-YEAR-First 5 Digit of phone number (e.g. CID-10-2026-01712)
-export function generateCustomerId(mobile, dateStr) {
-  if (!mobile) return "";
-  const cleaned = String(mobile).replace(/[^0-9]/g, "");
-  if (!cleaned) return "";
-  const first5 = cleaned.slice(0, 5);
-
-  const parts = (dateStr || today()).split("-");
+// Generate Unique Customer ID: CID-MONTH-YEAR-5 Random Digits (e.g. CID-10-2026-48291)
+export function generateCustomerId(mobileOrDate, dateStr) {
+  const d = dateStr || (mobileOrDate && String(mobileOrDate).includes("-") ? mobileOrDate : today());
+  const parts = d.split("-");
   const year = parts[0] || new Date().getFullYear();
   const month = parts[1] || String(new Date().getMonth() + 1).padStart(2, "0");
+  const random5 = Math.floor(10000 + Math.random() * 90000);
 
-  return `CID-${month}-${year}-${first5}`;
+  return `CID-${month}-${year}-${random5}`;
 }
 
 const emptyItem = () => ({
   name: "",
+  note: "",
   quantity: "",
   unit: "pcs",
   rate: "",
@@ -93,6 +241,10 @@ export default function BillEntryPage() {
   const [successMsg, setSuccessMsg] = useState("");
 
   const [showCustomersModal, setShowCustomersModal] = useState(false);
+  // Dedicated Duration Filter for Top Overview Cards (KPI)
+  const [kpiMode, setKpiMode] = useState("all");
+  const [kpiRef, setKpiRef] = useState(today());
+  const kpiRange = useMemo(() => getKpiRange(kpiMode, kpiRef), [kpiMode, kpiRef]);
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [modalSearch, setModalSearch] = useState("");
   const [modalBalanceFilter, setModalBalanceFilter] = useState("all");
@@ -116,26 +268,28 @@ export default function BillEntryPage() {
   const [showExcelMenu, setShowExcelMenu] = useState(false);
   const excelMenuRef = useRef(null);
 
-  // Duration Filter States: 'all' | 'day' | 'week' | 'month' | 'year'
+  // Duration Filter States for Table: 'all' | 'day' | 'week' | 'month' | 'year'
   const [durationMode, setDurationMode] = useState("all");
-  const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
-  const [showMonthDropdown, setShowMonthDropdown] = useState(false);
-  const [showYearDropdown, setShowYearDropdown] = useState(false);
-  const monthDropdownRef = useRef(null);
-  const yearDropdownRef = useRef(null);
+  const [tableRef, setTableRef] = useState(today());
+  const tableRange = useMemo(() => getKpiRange(durationMode, tableRef), [durationMode, tableRef]);
+
+  // Previous Due / Advance Entry States
+  const [prevEntry, setPrevEntry] = useState({
+    date: today(),
+    bill_no: "",
+    amount: "",
+    type: "due", // "due" | "advance"
+    note: "",
+  });
+  const [prevEntryBusy, setPrevEntryBusy] = useState(false);
+  const [prevEntryErr, setPrevEntryErr] = useState("");
+  const [prevEntrySuccess, setPrevEntrySuccess] = useState("");
 
   // Close menus on outside click
   useEffect(() => {
     function handleClickOutside(e) {
       if (excelMenuRef.current && !excelMenuRef.current.contains(e.target)) {
         setShowExcelMenu(false);
-      }
-      if (monthDropdownRef.current && !monthDropdownRef.current.contains(e.target)) {
-        setShowMonthDropdown(false);
-      }
-      if (yearDropdownRef.current && !yearDropdownRef.current.contains(e.target)) {
-        setShowYearDropdown(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -191,32 +345,19 @@ export default function BillEntryPage() {
     return Array.from(map.values());
   }, [customers, bills]);
 
-  // Helper to generate unique Customer ID preventing collision with different phone numbers
-  const generateUniqueCustomerId = (mobile, dateStr) => {
-    const baseId = generateCustomerId(mobile, dateStr);
-    if (!baseId) return "";
-    const rawMobile = String(mobile || "").replace(/[^0-9]/g, "");
-
-    const conflict =
-      customers.find(
-        (c) =>
-          c.customer_id &&
-          c.customer_id.toLowerCase() === baseId.toLowerCase() &&
-          String(c.mobile || "").replace(/[^0-9]/g, "") &&
-          String(c.mobile || "").replace(/[^0-9]/g, "") !== rawMobile
-      ) ||
-      bills.find(
-        (b) =>
-          b.customer_id &&
-          b.customer_id.toLowerCase() === baseId.toLowerCase() &&
-          String(b.customer_mobile || "").replace(/[^0-9]/g, "") &&
-          String(b.customer_mobile || "").replace(/[^0-9]/g, "") !== rawMobile
-      );
-
-    if (conflict && rawMobile.length >= 8) {
-      return `${baseId}-${rawMobile.slice(-4)}`;
+  // Helper to generate unique Customer ID with 5 completely random digits
+  const generateUniqueCustomerId = (dateStr) => {
+    let cid = "";
+    let attempts = 0;
+    while (attempts < 100) {
+      cid = generateCustomerId(dateStr);
+      const exists =
+        customers.some((c) => c.customer_id && c.customer_id.toLowerCase() === cid.toLowerCase()) ||
+        bills.some((b) => b.customer_id && b.customer_id.toLowerCase() === cid.toLowerCase());
+      if (!exists) break;
+      attempts++;
     }
-    return baseId;
+    return cid;
   };
 
   // Handle typing or selecting Customer ID (Optional - auto-fills basic info)
@@ -257,8 +398,8 @@ export default function BillEntryPage() {
   const handleMobileChange = (val) => {
     const rawMobile = String(val || "").replace(/[^0-9]/g, "");
 
-    // 1) If mobile is cleared or has fewer than 5 digits:
-    if (rawMobile.length < 5) {
+    // 1) If mobile is cleared:
+    if (!val || !val.trim()) {
       setForm((prev) => ({
         ...prev,
         customer_mobile: val,
@@ -269,32 +410,44 @@ export default function BillEntryPage() {
       return;
     }
 
-    // 2) Look for existing customer matching the EXACT same phone number digits
+    // 2) If mobile has fewer than 5 digits:
+    if (rawMobile.length < 5) {
+      setForm((prev) => ({
+        ...prev,
+        customer_mobile: val,
+        customer_id: "",
+      }));
+      return;
+    }
+
+    // 3) Look for existing customer matching the EXACT same phone number digits
     const existing =
       customers.find((c) => String(c.mobile || "").replace(/[^0-9]/g, "") === rawMobile) ||
       bills.find((b) => String(b.customer_mobile || "").replace(/[^0-9]/g, "") === rawMobile);
 
     if (existing) {
       // Existing customer profile found for this mobile number!
-      const cid = existing.customer_id || generateUniqueCustomerId(val, form.bill_date);
+      const cid = existing.customer_id || generateUniqueCustomerId(form.bill_date);
       setForm((prev) => ({
         ...prev,
         customer_mobile: val,
         customer_id: cid,
-        customer_name: existing.name || existing.customer_name || "",
-        customer_address: existing.address || existing.customer_address || "",
+        customer_name: existing.name || existing.customer_name || prev.customer_name,
+        customer_address: existing.address || existing.customer_address || prev.customer_address,
       }));
     } else {
-      // Brand new phone number! Generate new ID for this new number
-      const newCid = generateUniqueCustomerId(val, form.bill_date);
-      setForm((prev) => ({
-        ...prev,
-        customer_mobile: val,
-        customer_id: newCid,
-        // Reset name & address so previous customer's details don't remain
-        customer_name: prev.customer_id && prev.customer_id !== newCid ? "" : prev.customer_name,
-        customer_address: prev.customer_id && prev.customer_id !== newCid ? "" : prev.customer_address,
-      }));
+      // Brand new phone number! Generate new random 5-digit ID if not already generated
+      setForm((prev) => {
+        const newCid =
+          prev.customer_id && prev.customer_id.startsWith("CID-")
+            ? prev.customer_id
+            : generateUniqueCustomerId(form.bill_date);
+        return {
+          ...prev,
+          customer_mobile: val,
+          customer_id: newCid,
+        };
+      });
     }
   };
 
@@ -381,6 +534,14 @@ export default function BillEntryPage() {
       const items = [...prev.items];
       const row = { ...items[idx], [field]: val };
 
+      // Auto Suggest Unit when Item Name is chosen or changed
+      if (field === "name") {
+        const suggested = getSuggestedUnit(val);
+        if (suggested) {
+          row.unit = suggested;
+        }
+      }
+
       // Auto Subtotal Calculation: Quantity * Rate
       if (field === "quantity" || field === "rate" || field === "weight") {
         const qVal = field === "quantity" ? val : (row.quantity !== undefined && row.quantity !== "" ? row.quantity : row.weight);
@@ -408,10 +569,11 @@ export default function BillEntryPage() {
   const labour = parseFloat(form.labour_charge) || 0;
   const transport = parseFloat(form.transport_cost) || 0;
   const discount = parseFloat(form.discount) || 0;
-  const totalBill = Math.max(0, itemsSubtotal + labour + transport - discount);
+  const totalBill = Math.round(Math.max(0, itemsSubtotal + labour + transport - discount) * 100) / 100;
 
-  const payment = parseFloat(form.client_payment) || 0;
-  const dueAdvance = totalBill - payment; // > 0 => Due, < 0 => Advance
+  const payment = Math.round((parseFloat(form.client_payment) || 0) * 100) / 100;
+  let dueAdvance = Math.round((totalBill - payment) * 100) / 100; // > 0 => Due, < 0 => Advance
+  if (Math.abs(dueAdvance) < 0.005) dueAdvance = 0;
 
   // In Words Conversions
   const totalBillInWords = useMemo(() => {
@@ -419,9 +581,9 @@ export default function BillEntryPage() {
   }, [totalBill]);
 
   const dueAdvanceInWords = useMemo(() => {
-    if (dueAdvance > 0) {
+    if (dueAdvance >= 0.005) {
       return takaInWords(dueAdvance);
-    } else if (dueAdvance < 0) {
+    } else if (dueAdvance <= -0.005) {
       return takaInWords(Math.abs(dueAdvance));
     }
     return "Nil / Full Paid";
@@ -474,6 +636,53 @@ export default function BillEntryPage() {
       if (!res.ok) {
         setErr(result.error || "Failed to save bill");
       } else {
+        // If previous due/advance was also filled out, record it too
+        if (prevEntry.bill_no.trim() && parseFloat(prevEntry.amount) > 0 && prevEntry.date) {
+          try {
+            const isDue = prevEntry.type === "due";
+            const pAmt = parseFloat(prevEntry.amount);
+            const prevPayload = {
+              bill_date: prevEntry.date,
+              bill_no: prevEntry.bill_no.trim(),
+              customer_name: form.customer_name.trim(),
+              customer_address: form.customer_address.trim(),
+              customer_mobile: form.customer_mobile.trim(),
+              customer_id: finalCid,
+              items: [
+                {
+                  name: isDue ? "Previous Due Balance" : "Previous Advance Payment",
+                  note: prevEntry.note.trim() || (isDue ? "Recorded previous due" : "Recorded previous advance"),
+                  quantity: 1,
+                  unit: "item",
+                  rate: pAmt,
+                  subtotal: pAmt,
+                },
+              ],
+              labour_charge: 0,
+              transport_cost: 0,
+              discount: 0,
+              total_bill: isDue ? pAmt : 0,
+              client_payment: isDue ? 0 : pAmt,
+              due_advance: isDue ? pAmt : -pAmt,
+              note: prevEntry.note.trim() || (isDue ? `Previous Due Balance (Ref Bill #${prevEntry.bill_no.trim()})` : `Previous Advance Received (Ref Bill #${prevEntry.bill_no.trim()})`),
+            };
+            await fetch("/api/bill-entry", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(prevPayload),
+            });
+            setPrevEntry({
+              date: today(),
+              bill_no: "",
+              amount: "",
+              type: "due",
+              note: "",
+            });
+          } catch (peErr) {
+            console.error("Error saving accompanying previous entry:", peErr);
+          }
+        }
+
         setSuccessMsg(`Bill #${form.bill_no || "saved"} recorded successfully!`);
         // Reset form for next entry
         setForm(defaultForm());
@@ -483,6 +692,108 @@ export default function BillEntryPage() {
       setErr(error.message || "An unexpected error occurred");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Handle Save Previous Due / Advance independently
+  async function handleSavePrevEntry(e) {
+    if (e) e.preventDefault();
+    setPrevEntryErr("");
+    setPrevEntrySuccess("");
+
+    if (!form.customer_mobile.trim()) {
+      setPrevEntryErr("Customer Mobile No. is required in Section 1 to assign this entry.");
+      return;
+    }
+    if (!form.customer_name.trim()) {
+      setPrevEntryErr("Customer Name is required in Section 1 to assign this entry.");
+      return;
+    }
+    if (!prevEntry.date) {
+      setPrevEntryErr("Please select the date when the previous transaction occurred.");
+      return;
+    }
+    if (!prevEntry.bill_no.trim()) {
+      setPrevEntryErr("Please enter the previous Bill No. / Memo No.");
+      return;
+    }
+    const amt = parseFloat(prevEntry.amount);
+    if (isNaN(amt) || amt <= 0) {
+      setPrevEntryErr("Please enter a valid amount greater than 0.");
+      return;
+    }
+
+    setPrevEntryBusy(true);
+
+    try {
+      const finalCid = form.customer_id.trim() || generateUniqueCustomerId(form.customer_mobile, prevEntry.date);
+      const isDue = prevEntry.type === "due";
+      const total_bill = isDue ? amt : 0;
+      const client_payment = isDue ? 0 : amt;
+      const due_advance = isDue ? amt : -amt;
+
+      const itemName = isDue ? "Previous Due Balance" : "Previous Advance Payment";
+      const defaultNote = isDue
+        ? `Previous Due Balance (Ref Bill #${prevEntry.bill_no.trim()})`
+        : `Previous Advance Received (Ref Bill #${prevEntry.bill_no.trim()})`;
+
+      const payload = {
+        bill_date: prevEntry.date,
+        bill_no: prevEntry.bill_no.trim(),
+        customer_name: form.customer_name.trim(),
+        customer_address: form.customer_address.trim(),
+        customer_mobile: form.customer_mobile.trim(),
+        customer_id: finalCid,
+        items: [
+          {
+            name: itemName,
+            note: prevEntry.note.trim() || (isDue ? "Recorded previous due" : "Recorded previous advance"),
+            quantity: 1,
+            unit: "item",
+            rate: amt,
+            subtotal: amt,
+          },
+        ],
+        labour_charge: 0,
+        transport_cost: 0,
+        discount: 0,
+        total_bill,
+        client_payment,
+        due_advance,
+        note: prevEntry.note.trim() || defaultNote,
+      };
+
+      const res = await fetch("/api/bill-entry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 401) {
+        router.replace("/");
+        return;
+      }
+
+      const result = await res.json();
+      if (!res.ok) {
+        setPrevEntryErr(result.error || "Failed to save previous entry");
+      } else {
+        setPrevEntrySuccess(
+          `Previous ${isDue ? "Due" : "Advance"} of ৳ ${fmt(amt)} recorded on ${prettyDate(prevEntry.date)} for ${form.customer_name}!`
+        );
+        setPrevEntry({
+          date: today(),
+          bill_no: "",
+          amount: "",
+          type: "due",
+          note: "",
+        });
+        await loadData();
+      }
+    } catch (error) {
+      setPrevEntryErr(error.message || "An unexpected error occurred");
+    } finally {
+      setPrevEntryBusy(false);
     }
   }
 
@@ -517,6 +828,7 @@ export default function BillEntryPage() {
       items: Array.isArray(b.items) && b.items.length > 0
         ? b.items.map((it) => ({
             name: it.name || "",
+            note: it.note || "",
             quantity: it.quantity !== undefined && it.quantity !== null && it.quantity !== "" ? String(it.quantity) : (it.weight !== undefined && it.weight !== null ? String(it.weight) : ""),
             unit: it.unit || "pcs",
             rate: it.rate !== undefined && it.rate !== null ? String(it.rate) : "",
@@ -535,6 +847,14 @@ export default function BillEntryPage() {
     setEditModalData((prev) => {
       const items = [...prev.items];
       const row = { ...items[idx], [field]: val };
+
+      // Auto Suggest Unit when Item Name is chosen or changed in modal
+      if (field === "name") {
+        const suggested = getSuggestedUnit(val);
+        if (suggested) {
+          row.unit = suggested;
+        }
+      }
 
       // Auto Subtotal Calculation: Quantity * Rate
       if (field === "quantity" || field === "rate" || field === "weight") {
@@ -683,9 +1003,10 @@ export default function BillEntryPage() {
       const l = parseFloat(editModalData.labour_charge) || 0;
       const t = parseFloat(editModalData.transport_cost) || 0;
       const d = parseFloat(editModalData.discount) || 0;
-      const computedTotalBill = Math.max(0, editSubtotal + l + t - d);
-      const p = parseFloat(editModalData.client_payment) || 0;
-      const computedDueAdvance = computedTotalBill - p;
+      const computedTotalBill = Math.round(Math.max(0, editSubtotal + l + t - d) * 100) / 100;
+      const p = Math.round((parseFloat(editModalData.client_payment) || 0) * 100) / 100;
+      let computedDueAdvance = Math.round((computedTotalBill - p) * 100) / 100;
+      if (Math.abs(computedDueAdvance) < 0.005) computedDueAdvance = 0;
 
       const payload = {
         id: editModalData.id,
@@ -921,38 +1242,40 @@ export default function BillEntryPage() {
       let running = 0;
       sorted.forEach((b) => {
         const prev = running;
-        const totalBill = Number(b.total_bill) || 0;
-        const payment = Number(b.client_payment) || 0;
-        const net = Number(b.due_advance) || (totalBill - payment);
+        const totalBill = Math.round((Number(b.total_bill) || 0) * 100) / 100;
+        const payment = Math.round((Number(b.client_payment) || 0) * 100) / 100;
+        let net = Math.round((Number(b.due_advance) || (totalBill - payment)) * 100) / 100;
+        if (Math.abs(net) < 0.005) net = 0;
 
         let dueThisBill = 0;
         let advanceThisBill = 0;
         let dueReceived = 0;
 
-        if (totalBill > payment) {
-          const shortfall = totalBill - payment;
-          if (prev < 0) {
+        if (totalBill - payment >= 0.005) {
+          const shortfall = Math.round((totalBill - payment) * 100) / 100;
+          if (prev <= -0.005) {
             // Customer had previous advance balance
             const availableAdvance = Math.abs(prev);
             if (availableAdvance >= shortfall) {
               dueThisBill = 0;
             } else {
-              dueThisBill = shortfall - availableAdvance;
+              dueThisBill = Math.round((shortfall - availableAdvance) * 100) / 100;
             }
           } else {
             dueThisBill = shortfall;
           }
-        } else if (payment > totalBill) {
-          const excess = payment - totalBill;
-          if (prev > 0) {
-            dueReceived = Math.min(prev, excess);
-            advanceThisBill = Math.max(0, excess - prev);
+        } else if (payment - totalBill >= 0.005) {
+          const excess = Math.round((payment - totalBill) * 100) / 100;
+          if (prev >= 0.005) {
+            dueReceived = Math.round(Math.min(prev, excess) * 100) / 100;
+            advanceThisBill = Math.round(Math.max(0, excess - prev) * 100) / 100;
           } else {
             advanceThisBill = excess;
           }
         }
 
-        running += net;
+        running = Math.round((running + net) * 100) / 100;
+        if (Math.abs(running) < 0.005) running = 0;
         balanceInfoMap.set(b.id, {
           prevBalance: prev,
           billNet: net,
@@ -976,12 +1299,13 @@ export default function BillEntryPage() {
     });
 
     return bills.map((b) => {
+      const fallbackDiff = Math.round(((Number(b.total_bill) || 0) - (Number(b.client_payment) || 0)) * 100) / 100;
       const info = balanceInfoMap.get(b.id) || {
         prevBalance: 0,
         billNet: Number(b.due_advance) || 0,
         runningBalance: Number(b.due_advance) || 0,
-        dueThisBill: Math.max(0, (Number(b.total_bill) || 0) - (Number(b.client_payment) || 0)),
-        advanceThisBill: Math.max(0, (Number(b.client_payment) || 0) - (Number(b.total_bill) || 0)),
+        dueThisBill: fallbackDiff >= 0.005 ? fallbackDiff : 0,
+        advanceThisBill: fallbackDiff <= -0.005 ? Math.abs(fallbackDiff) : 0,
         dueReceived: 0,
         isLatestBillForCustomer: false,
         customerFinalBalance: Number(b.due_advance) || 0,
@@ -1151,6 +1475,28 @@ export default function BillEntryPage() {
   const sumTotalPaid = bills.reduce((s, b) => s + (Number(b.client_payment) || 0), 0);
   const sumTotalDue = bills.reduce((s, b) => s + (Number(b.due_advance) || 0), 0);
 
+  // Dedicated calculations for Top KPI Cards (filtered strictly by kpiRange)
+  const { kpiTotalInvoices, kpiTotalBilled, kpiTotalCollected } = useMemo(() => {
+    let count = 0;
+    let totalBilled = 0;
+    let totalCollected = 0;
+
+    bills.forEach((b) => {
+      const d = b.bill_date ? String(b.bill_date).slice(0, 10) : "";
+      if (kpiMode !== "all" && (d < kpiRange.from || d > kpiRange.to)) return;
+
+      count += 1;
+      totalBilled += Number(b.total_bill || 0);
+      totalCollected += Number(b.client_payment || 0);
+    });
+
+    return {
+      kpiTotalInvoices: count,
+      kpiTotalBilled: totalBilled,
+      kpiTotalCollected: totalCollected,
+    };
+  }, [bills, kpiMode, kpiRange]);
+
   // Current Week Range (Auto-selected based on today's date, Saturday to Friday)
   const currentWeekRange = useMemo(() => {
     const now = new Date();
@@ -1194,29 +1540,11 @@ export default function BillEntryPage() {
   const durationFilteredBills = useMemo(() => {
     return billsWithBalance.filter((b) => {
       if (durationMode === "all") return true;
-      if (!b.bill_date) return false;
-
-      if (durationMode === "day") {
-        return b.bill_date === today();
-      }
-
-      if (durationMode === "week") {
-        return b.bill_date >= currentWeekRange.startStr && b.bill_date <= currentWeekRange.endStr;
-      }
-
-      if (durationMode === "month") {
-        const [bY, bM] = b.bill_date.split("-").map(Number);
-        return bY === Number(selectedYear) && bM === Number(selectedMonth);
-      }
-
-      if (durationMode === "year") {
-        const [bY] = b.bill_date.split("-").map(Number);
-        return bY === Number(selectedYear);
-      }
-
-      return true;
+      const d = b.bill_date ? String(b.bill_date).slice(0, 10) : "";
+      if (!d) return false;
+      return d >= tableRange.from && d <= tableRange.to;
     });
-  }, [billsWithBalance, durationMode, selectedMonth, selectedYear, currentWeekRange]);
+  }, [billsWithBalance, durationMode, tableRange]);
 
   // Target pool of bills according to duration
   const targetBillsPool = useMemo(() => {
@@ -1230,43 +1558,43 @@ export default function BillEntryPage() {
 
   // Due, Advance & Settled Customer Counts based on each customer's LATEST bill status
   const dueBillsCount = useMemo(
-    () => latestCustomerBills.filter((b) => Number(b.customerFinalBalance) > 0).length,
+    () => latestCustomerBills.filter((b) => Number(b.customerFinalBalance) >= 0.005).length,
     [latestCustomerBills]
   );
   const advanceBillsCount = useMemo(
-    () => latestCustomerBills.filter((b) => Number(b.customerFinalBalance) < 0).length,
+    () => latestCustomerBills.filter((b) => Number(b.customerFinalBalance) <= -0.005).length,
     [latestCustomerBills]
   );
   const paidBillsCount = useMemo(
-    () => latestCustomerBills.filter((b) => Number(b.customerFinalBalance) === 0).length,
+    () => latestCustomerBills.filter((b) => Math.abs(Number(b.customerFinalBalance)) < 0.005).length,
     [latestCustomerBills]
   );
 
   const dueCustomersCount = useMemo(
-    () => customerIdGroups.filter((g) => (Number(g.netDue) || 0) > 0).length,
+    () => customerIdGroups.filter((g) => (Number(g.netDue) || 0) >= 0.005).length,
     [customerIdGroups]
   );
   const advanceCustomersCount = useMemo(
-    () => customerIdGroups.filter((g) => (Number(g.netDue) || 0) < 0).length,
+    () => customerIdGroups.filter((g) => (Number(g.netDue) || 0) <= -0.005).length,
     [customerIdGroups]
   );
 
 
 
   // Filtered Bills:
-  // - If 'due': show ONLY the latest bill for customers who currently owe money (net balance > 0)
-  // - If 'advance': show ONLY the latest bill for customers who currently have advance payment (net balance < 0)
-  // - If 'paid': show ONLY the latest bill for customers who are fully settled (net balance === 0)
+  // - If 'due': show ONLY the latest bill for customers who currently owe money (net balance >= 0.005)
+  // - If 'advance': show ONLY the latest bill for customers who currently have advance payment (net balance <= -0.005)
+  // - If 'paid': show ONLY the latest bill for customers who are fully settled (Math.abs(net balance) < 0.005)
   // - If 'all': show all invoices according to duration and search query
   const filteredBills = useMemo(() => {
     let list = [];
 
     if (balanceFilter === "due") {
-      list = latestCustomerBills.filter((b) => Number(b.customerFinalBalance) > 0);
+      list = latestCustomerBills.filter((b) => Number(b.customerFinalBalance) >= 0.005);
     } else if (balanceFilter === "advance") {
-      list = latestCustomerBills.filter((b) => Number(b.customerFinalBalance) < 0);
+      list = latestCustomerBills.filter((b) => Number(b.customerFinalBalance) <= -0.005);
     } else if (balanceFilter === "paid") {
-      list = latestCustomerBills.filter((b) => Number(b.customerFinalBalance) === 0);
+      list = latestCustomerBills.filter((b) => Math.abs(Number(b.customerFinalBalance)) < 0.005);
     } else {
       list = durationFilteredBills;
     }
@@ -1326,19 +1654,19 @@ export default function BillEntryPage() {
     let totalAdvBalance = 0;
     customerLatestBillMap.forEach((latestBill) => {
       const rBal = latestBill.runningBalance !== undefined ? Number(latestBill.runningBalance) : Number(latestBill.due_advance || 0);
-      if (rBal > 0) totalDueBalance += rBal;
-      else if (rBal < 0) totalAdvBalance += Math.abs(rBal);
+      if (rBal >= 0.005) totalDueBalance += rBal;
+      else if (rBal <= -0.005) totalAdvBalance += Math.abs(rBal);
     });
 
     return {
-      totalBill,
-      totalInvoicePayment,
-      totalClientPayment,
-      totalDueThisBill,
-      totalAdvanceThisBill,
-      totalDueReceived,
-      totalDueBalance,
-      totalAdvBalance,
+      totalBill: Math.round(totalBill * 100) / 100,
+      totalInvoicePayment: Math.round(totalInvoicePayment * 100) / 100,
+      totalClientPayment: Math.round(totalClientPayment * 100) / 100,
+      totalDueThisBill: Math.round(totalDueThisBill * 100) / 100,
+      totalAdvanceThisBill: Math.round(totalAdvanceThisBill * 100) / 100,
+      totalDueReceived: Math.round(totalDueReceived * 100) / 100,
+      totalDueBalance: Math.round(totalDueBalance * 100) / 100,
+      totalAdvBalance: Math.round(totalAdvBalance * 100) / 100,
       count: filteredBills.length,
     };
   }, [filteredBills]);
@@ -1354,11 +1682,7 @@ export default function BillEntryPage() {
       const wb = XLSX.utils.book_new();
 
       // Period text
-      let periodInfo = "All Time";
-      if (durationMode === "day") periodInfo = `Today (${today()})`;
-      else if (durationMode === "week") periodInfo = `This Week (${currentWeekRange.label})`;
-      else if (durationMode === "month") periodInfo = `Month (${MONTH_SHORT[selectedMonth - 1]} ${selectedYear})`;
-      else if (durationMode === "year") periodInfo = `Year (${selectedYear})`;
+      let periodInfo = durationMode !== "all" ? tableRange.label : "All Time";
 
       // Helper to format invoices sheet
       const makeInvoicesSheet = (billList, sheetTitle) => {
@@ -1991,28 +2315,6 @@ export default function BillEntryPage() {
             Customers Directory ({customerIdGroups.length})
           </button>
 
-          {/* Recycle Bin Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowRecycleModal(true);
-              setRecycleSearch("");
-            }}
-            className={`be-nav-btn recycle ${recycleBinItems.length > 0 ? "has-items" : ""}`}
-            title="Recycle Bin (Deleted Items)"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              <line x1="10" y1="11" x2="10" y2="17" />
-              <line x1="14" y1="11" x2="14" y2="17" />
-            </svg>
-            Recycle Bin
-            {recycleBinItems.length > 0 && (
-              <span className="be-recycle-pill">{recycleBinItems.length}</span>
-            )}
-          </button>
-
           <Link href="/" className="be-nav-btn" title="Open Home Dashboard">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 12l9-9 9 9M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10" />
@@ -2023,19 +2325,98 @@ export default function BillEntryPage() {
       </header>
 
 
+      {/* Top Cards Filter Bar */}
+      <div className="ex-kpi-filter-bar">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span className="ex-kpi-filter-label">
+            <BarChartIcon size={15} style={{ color: "#2563eb" }} /> Overview Cards Filter:
+          </span>
+          <div className="be-duration-group">
+            {KPI_MODES.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                className={`be-duration-btn ${kpiMode === m.key ? "active" : ""}`}
+                onClick={() => {
+                  setKpiMode(m.key);
+                  if (m.key === "week") {
+                    setKpiRef(weekStart(kpiRef || today()));
+                  }
+                }}
+              >
+                {m.key === "all" ? "All Time" : m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {kpiMode !== "all" && (
+          <div className="ex-nav-group">
+            <button
+              type="button"
+              className="ex-arrow"
+              onClick={() => setKpiRef(shiftKpiRef(kpiMode, kpiRef, -1))}
+              aria-label="Previous"
+              title="Previous period"
+            >
+              <ChevronLeftIcon size={12} />
+            </button>
+            <span
+              className="ex-range-label"
+              style={{
+                fontSize: "0.85rem",
+                fontWeight: 700,
+                color: "#1e3a8a",
+                background: "#f8fafc",
+                padding: "5px 12px",
+                borderRadius: 7,
+                border: "1px solid #e2e8f0",
+                minWidth: 160,
+                textAlign: "center",
+              }}
+            >
+              {kpiRange.label}
+            </span>
+            <button
+              type="button"
+              className="ex-arrow"
+              onClick={() => setKpiRef(shiftKpiRef(kpiMode, kpiRef, 1))}
+              aria-label="Next"
+              title="Next period"
+            >
+              <ChevronRightIcon size={12} />
+            </button>
+            <button
+              type="button"
+              className="be-nav-btn"
+              style={{ fontSize: "0.76rem", padding: "4px 10px" }}
+              onClick={() => {
+                if (kpiMode === "week") {
+                  setKpiRef(weekStart(today()));
+                } else {
+                  setKpiRef(today());
+                }
+              }}
+            >
+              Current
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* KPI Stats Bar */}
       <section className="be-stats-grid">
         <div className="be-stat-card">
-          <span className="label">Total Invoices</span>
-          <span className="val">{totalBillsCount}</span>
+          <span className="label">Total Invoices • {kpiRange.label}</span>
+          <span className="val">{kpiTotalInvoices}</span>
         </div>
         <div className="be-stat-card">
-          <span className="label">Total Billed</span>
-          <span className="val">৳ {fmt(sumTotalBills)}</span>
+          <span className="label">Total Billed • {kpiRange.label}</span>
+          <span className="val">৳ {fmt(kpiTotalBilled)}</span>
         </div>
         <div className="be-stat-card paid">
-          <span className="label">Total Collected</span>
-          <span className="val">৳ {fmt(sumTotalPaid)}</span>
+          <span className="label">Total Collected • {kpiRange.label}</span>
+          <span className="val">৳ {fmt(kpiTotalCollected)}</span>
         </div>
       </section>
 
@@ -2066,14 +2447,23 @@ export default function BillEntryPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
+        <form
+          onSubmit={handleSubmit}
+          onKeyDown={(e) => {
+            // Prevent accidental submit when pressing Enter in text/number inputs
+            if (e.key === "Enter" && e.target.tagName === "INPUT") {
+              e.preventDefault();
+            }
+          }}
+        >
           {/* Section 1: Bill Meta & Customer Info */}
           <div className="be-form-section">
             <div className="be-section-heading">
               <span>1. Invoice & Customer Information</span>
             </div>
 
-            <div className="be-grid-2" style={{ marginBottom: "14px" }}>
+            {/* Row 1: Date, Bill No, Mobile No */}
+            <div className="be-grid-3" style={{ marginBottom: "14px" }}>
               {/* 1) Date */}
               <div className="be-field-group">
                 <label htmlFor="f-date">
@@ -2103,71 +2493,17 @@ export default function BillEntryPage() {
                   onChange={(e) => setForm({ ...form, bill_no: e.target.value })}
                 />
               </div>
-            </div>
 
-            <div className="be-grid-4">
-              {/* Customer ID (Optional) */}
-              <div className="be-field-group">
-                <label htmlFor="f-cid">
-                  Customer ID <span style={{ fontSize: "0.74rem", color: "var(--be-text-muted)" }}>(Optional)</span>
-                </label>
-                <input
-                  id="f-cid"
-                  type="text"
-                  className="be-input"
-                  placeholder="e.g. CID-10-2026-01712 (Optional)"
-                  list="cid-suggestions"
-                  value={form.customer_id}
-                  onChange={(e) => handleCustomerIdChange(e.target.value)}
-                />
-                <datalist id="cid-suggestions">
-                  {allKnownCustomerProfiles.map((c) => (
-                    <option key={c.customer_id} value={c.customer_id}>
-                      {c.name ? `${c.name} • ` : ""}{c.mobile || ""}
-                    </option>
-                  ))}
-                </datalist>
-              </div>
-
-              {/* 3) Customer Name */}
-              <div className="be-field-group">
-                <label htmlFor="f-name">
-                  3) Customer Name <span className="req">*</span>
-                </label>
-                <input
-                  id="f-name"
-                  type="text"
-                  className="be-input"
-                  placeholder="Enter name for this bill"
-                  value={form.customer_name}
-                  onChange={(e) => handleCustomerNameChange(e.target.value)}
-                  required
-                />
-              </div>
-
-              {/* 4) Address */}
-              <div className="be-field-group">
-                <label htmlFor="f-address">4) Customer Address</label>
-                <input
-                  id="f-address"
-                  type="text"
-                  className="be-input"
-                  placeholder="e.g. Gazipur, Dhaka"
-                  value={form.customer_address}
-                  onChange={(e) => setForm({ ...form, customer_address: e.target.value })}
-                />
-              </div>
-
-              {/* 5) Mobile No */}
+              {/* 3) Mobile No */}
               <div className="be-field-group">
                 <label htmlFor="f-mobile">
-                  5) Mobile No. <span className="req">*</span>
+                  3) Mobile No. <span className="req">*</span>
                 </label>
                 <input
                   id="f-mobile"
                   type="text"
                   className="be-input"
-                  placeholder="e.g. 01712345678"
+                  placeholder="Enter customer mobile no..."
                   list="mobile-suggestions"
                   value={form.customer_mobile}
                   onChange={(e) => handleMobileChange(e.target.value)}
@@ -2177,6 +2513,78 @@ export default function BillEntryPage() {
                   {allKnownCustomerProfiles.map((c) => (
                     <option key={c.customer_id} value={c.mobile}>
                       {c.name ? `${c.name} (${c.customer_id})` : c.customer_id}
+                    </option>
+                  ))}
+                </datalist>
+              </div>
+            </div>
+
+            {/* Row 2: Customer Name, Customer Address, Customer ID */}
+            <div className="be-grid-3">
+              {/* 4) Customer Name */}
+              <div className="be-field-group">
+                <label htmlFor="f-name">
+                  4) Customer Name <span className="req">*</span>
+                </label>
+                <input
+                  id="f-name"
+                  type="text"
+                  className="be-input"
+                  placeholder={!form.customer_mobile.trim() ? "Enter mobile no. first..." : "Enter name for this bill"}
+                  value={form.customer_name}
+                  onChange={(e) => handleCustomerNameChange(e.target.value)}
+                  disabled={!form.customer_mobile.trim()}
+                  style={{
+                    backgroundColor: !form.customer_mobile.trim() ? "#f8fafc" : "#ffffff",
+                    cursor: !form.customer_mobile.trim() ? "not-allowed" : "text",
+                  }}
+                  required
+                />
+              </div>
+
+              {/* 5) Address */}
+              <div className="be-field-group">
+                <label htmlFor="f-address">5) Customer Address</label>
+                <input
+                  id="f-address"
+                  type="text"
+                  className="be-input"
+                  placeholder={!form.customer_mobile.trim() ? "Enter mobile no. first..." : "e.g. Gazipur, Dhaka"}
+                  value={form.customer_address}
+                  onChange={(e) => setForm({ ...form, customer_address: e.target.value })}
+                  disabled={!form.customer_mobile.trim()}
+                  style={{
+                    backgroundColor: !form.customer_mobile.trim() ? "#f8fafc" : "#ffffff",
+                    cursor: !form.customer_mobile.trim() ? "not-allowed" : "text",
+                  }}
+                />
+              </div>
+
+              {/* Customer ID (Auto-Generated) */}
+              <div className="be-field-group">
+                <label htmlFor="f-cid">
+                  Customer ID <span style={{ fontSize: "0.74rem", color: "var(--be-text-muted)" }}>(Auto-Generated)</span>
+                </label>
+                <input
+                  id="f-cid"
+                  type="text"
+                  className="be-input"
+                  placeholder={!form.customer_mobile.trim() ? "Auto-generates with mobile..." : "CID-MM-YYYY-XXXXX"}
+                  list="cid-suggestions"
+                  value={form.customer_id}
+                  onChange={(e) => handleCustomerIdChange(e.target.value)}
+                  disabled={!form.customer_mobile.trim()}
+                  style={{
+                    backgroundColor: !form.customer_mobile.trim() ? "#f8fafc" : "#ffffff",
+                    cursor: !form.customer_mobile.trim() ? "not-allowed" : "text",
+                    fontFamily: "monospace",
+                    fontWeight: 600,
+                  }}
+                />
+                <datalist id="cid-suggestions">
+                  {allKnownCustomerProfiles.map((c) => (
+                    <option key={c.customer_id} value={c.customer_id}>
+                      {c.name ? `${c.name} • ` : ""}{c.mobile || ""}
                     </option>
                   ))}
                 </datalist>
@@ -2243,20 +2651,21 @@ export default function BillEntryPage() {
           {/* Section 2: Items Table (Multiple Items) */}
           <div className="be-form-section">
             <div className="be-section-heading">
-              <span>6. Item Breakdown (Item Name, Quantity, Unit, Rate, Sub-Total)</span>
+              <span>6. Item Breakdown (Item Name, Note, Quantity, Unit, Rate, Sub-Total)</span>
             </div>
 
             <div className="be-items-container">
               <table className="be-items-table">
                 <thead>
                   <tr>
-                    <th style={{ width: "40px", textAlign: "center" }}>#</th>
+                    <th style={{ width: "36px", textAlign: "center" }}>#</th>
                     <th>Item Description</th>
-                    <th style={{ width: "120px" }}>Quantity</th>
-                    <th style={{ width: "110px" }}>Unit</th>
-                    <th style={{ width: "130px" }}>Rate (৳)</th>
-                    <th style={{ width: "140px", textAlign: "right" }}>Sub-Total (৳)</th>
-                    <th style={{ width: "50px", textAlign: "center" }}></th>
+                    <th style={{ width: "170px" }}>Item Note</th>
+                    <th style={{ width: "110px" }}>Quantity</th>
+                    <th style={{ width: "95px" }}>Unit</th>
+                    <th style={{ width: "120px" }}>Rate (৳)</th>
+                    <th style={{ width: "135px", textAlign: "right" }}>Sub-Total (৳)</th>
+                    <th style={{ width: "45px", textAlign: "center" }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2272,6 +2681,14 @@ export default function BillEntryPage() {
                           list="item-presets"
                           value={item.name}
                           onChange={(e) => handleItemFieldChange(idx, "name", e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          placeholder="Note / specs / remarks..."
+                          value={item.note || ""}
+                          onChange={(e) => handleItemFieldChange(idx, "note", e.target.value)}
                         />
                       </td>
                       <td>
@@ -2355,12 +2772,15 @@ export default function BillEntryPage() {
               <datalist id="unit-presets">
                 <option value="pcs" />
                 <option value="kg" />
-                <option value="meter" />
-                <option value="box" />
-                <option value="nos" />
                 <option value="sft" />
-                <option value="ton" />
+                <option value="rft" />
+                <option value="meter" />
+                <option value="roll" />
+                <option value="box" />
+                <option value="trip" />
                 <option value="set" />
+                <option value="nos" />
+                <option value="ton" />
                 <option value="bundle" />
                 <option value="coil" />
               </datalist>
@@ -2520,6 +2940,240 @@ export default function BillEntryPage() {
             </div>
           </div>
 
+          {/* Section 5: Previous Due / Advance Entry */}
+          <div
+            className="be-prev-entry-card"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: "8px",
+                  background: prevEntry.type === "due" ? "#fee2e2" : "#ecfdf5",
+                  color: prevEntry.type === "due" ? "#dc2626" : "#059669",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}>
+                  {prevEntry.type === "due" ? (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="12" y1="18" x2="12" y2="12" />
+                      <line x1="9" y1="15" x2="15" y2="15" />
+                    </svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="4" width="20" height="16" rx="2" />
+                      <path d="M7 15h0M2 9.5h20" />
+                      <circle cx="16" cy="14" r="1.5" />
+                    </svg>
+                  )}
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "0.98rem", fontWeight: 700, color: "#1e293b", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                    <span>Previous Due / Advance Entry</span>
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "0.76rem", color: "#64748b" }}>
+                    Record an opening balance, past unpaid bill, or prior advance for this customer. It will be posted directly to that date.
+                  </p>
+                </div>
+              </div>
+
+              {/* Customer Target Indicator */}
+              {form.customer_mobile.trim() ? (
+                <div style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  background: "#ffffff",
+                  border: "1px solid #bfdbfe",
+                  padding: "5px 12px",
+                  borderRadius: "20px",
+                  fontSize: "0.78rem",
+                  color: "#1e40af",
+                  fontWeight: 600,
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.04)"
+                }}>
+                  <span>Customer: <b>{form.customer_name || "Name Pending"}</b></span>
+                  <span style={{ color: "#94a3b8" }}>|</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                    </svg>
+                    {form.customer_mobile}
+                  </span>
+                </div>
+              ) : (
+                <div style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  background: "#fffbeb",
+                  border: "1px solid #fde68a",
+                  padding: "5px 12px",
+                  borderRadius: "20px",
+                  fontSize: "0.76rem",
+                  color: "#b45309",
+                  fontWeight: 600
+                }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                  <span>Enter Customer Mobile &amp; Name in Section 1 to assign</span>
+                </div>
+              )}
+            </div>
+
+            {/* Feedback messages */}
+            {prevEntryErr && (
+              <div style={{ background: "#fee2e2", color: "#991b1b", padding: "8px 12px", borderRadius: "8px", fontSize: "0.82rem", fontWeight: 600, marginBottom: "12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span>{prevEntryErr}</span>
+                <button type="button" onClick={() => setPrevEntryErr("")} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#991b1b", fontWeight: 700 }}>✕</button>
+              </div>
+            )}
+
+            {prevEntrySuccess && (
+              <div style={{ background: "#ecfdf5", color: "#065f46", padding: "8px 12px", borderRadius: "8px", fontSize: "0.82rem", fontWeight: 600, marginBottom: "12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span>{prevEntrySuccess}</span>
+                <button type="button" onClick={() => setPrevEntrySuccess("")} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#065f46", fontWeight: 700 }}>✕</button>
+              </div>
+            )}
+
+            {/* Input Fields Grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", alignItems: "flex-end" }}>
+              {/* 1. Date */}
+              <div className="be-field-group">
+                <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span>1) Prev Date</span>
+                  <span style={{ color: "#dc2626" }}>*</span>
+                </label>
+                <input
+                  type="date"
+                  className="be-input"
+                  value={prevEntry.date}
+                  onChange={(e) => setPrevEntry({ ...prevEntry, date: e.target.value })}
+                  style={{ background: "#ffffff", padding: "8px 10px", fontSize: "0.85rem" }}
+                />
+              </div>
+
+              {/* 2. Bill No */}
+              <div className="be-field-group">
+                <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span>2) Prev Bill No.</span>
+                  <span style={{ color: "#dc2626" }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  className="be-input"
+                  placeholder="e.g. 740, B-102, Old Memo"
+                  value={prevEntry.bill_no}
+                  onChange={(e) => setPrevEntry({ ...prevEntry, bill_no: e.target.value })}
+                  style={{ background: "#ffffff", padding: "8px 10px", fontSize: "0.85rem" }}
+                />
+              </div>
+
+              {/* 3. Type Selection (Due vs Advance) */}
+              <div className="be-field-group">
+                <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#334155" }}>
+                  3) Type (Due / Advance) <span style={{ color: "#dc2626" }}>*</span>
+                </label>
+                <div className="be-prev-type-toggle">
+                  <button
+                    type="button"
+                    onClick={() => setPrevEntry({ ...prevEntry, type: "due" })}
+                    className={`be-prev-type-btn ${prevEntry.type === "due" ? "is-due" : ""}`}
+                  >
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: prevEntry.type === "due" ? "#dc2626" : "#94a3b8" }} />
+                    Due
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPrevEntry({ ...prevEntry, type: "advance" })}
+                    className={`be-prev-type-btn ${prevEntry.type === "advance" ? "is-adv" : ""}`}
+                  >
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: prevEntry.type === "advance" ? "#059669" : "#94a3b8" }} />
+                    Advance
+                  </button>
+                </div>
+              </div>
+
+              {/* 4. Amount */}
+              <div className="be-field-group">
+                <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#334155", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <span>4) Amount (৳)</span>
+                  <span style={{ color: "#dc2626" }}>*</span>
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  className="be-input"
+                  placeholder="e.g. 5000"
+                  value={prevEntry.amount}
+                  onChange={(e) => setPrevEntry({ ...prevEntry, amount: e.target.value })}
+                  style={{
+                    background: "#ffffff",
+                    padding: "8px 10px",
+                    fontSize: "0.95rem",
+                    fontWeight: 700,
+                    color: prevEntry.type === "due" ? "#b91c1c" : "#065f46",
+                    borderColor: prevEntry.type === "due" ? "#fca5a5" : "#6ee7b7"
+                  }}
+                />
+              </div>
+
+              {/* 5. Optional Note & Action Button */}
+              <div style={{ display: "flex", gap: "8px", gridColumn: "1 / -1", marginTop: "4px", flexWrap: "wrap" }}>
+                <input
+                  type="text"
+                  className="be-input"
+                  placeholder="Remarks / Note (Optional, e.g. Old manual khata balance)"
+                  value={prevEntry.note}
+                  onChange={(e) => setPrevEntry({ ...prevEntry, note: e.target.value })}
+                  style={{ flex: 1, minWidth: "220px", background: "#ffffff", fontSize: "0.82rem", padding: "8px 12px" }}
+                />
+
+                <button
+                  type="button"
+                  onClick={handleSavePrevEntry}
+                  disabled={prevEntryBusy}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "8px 18px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: prevEntry.type === "due" ? "#dc2626" : "#059669",
+                    color: "#ffffff",
+                    fontSize: "0.82rem",
+                    fontWeight: 700,
+                    cursor: prevEntryBusy ? "not-allowed" : "pointer",
+                    whiteSpace: "nowrap",
+                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                    transition: "all 0.15s ease"
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  {prevEntryBusy ? "Recording..." : `Record Previous ${prevEntry.type === "due" ? "Due" : "Advance"}`}
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Form Actions */}
           <div className="be-actions-row">
             <button type="submit" className="be-btn be-btn-primary" disabled={busy}>
@@ -2559,10 +3213,7 @@ export default function BillEntryPage() {
             </h2>
             <div style={{ fontSize: "0.8rem", color: "var(--be-text-muted)", marginTop: "2px" }}>
               Showing {filteredBills.length} of {bills.length} invoices
-              {durationMode === "day" && " • (Period: Today)"}
-              {durationMode === "week" && ` • (Period: This Week - ${currentWeekRange.label})`}
-              {durationMode === "month" && ` • (Period: Month ${selectedMonth}/${selectedYear})`}
-              {durationMode === "year" && ` • (Period: Year ${selectedYear})`}
+              {durationMode !== "all" && ` • (Period: ${tableRange.label})`}
               {balanceFilter === "due" && " • (Filtered: Outstanding Due)"}
               {balanceFilter === "advance" && " • (Filtered: Advance Payment)"}
               {balanceFilter === "paid" && " • (Filtered: Fully Paid)"}
@@ -2570,6 +3221,36 @@ export default function BillEntryPage() {
           </div>
 
           <div className="be-toolbar-actions">
+            {/* Clear Filter Button placed to the LEFT of Download Excel */}
+            {(balanceFilter !== "all" || durationMode !== "all" || Boolean(search.trim())) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBalanceFilter("all");
+                  setDurationMode("all");
+                  setSearch("");
+                }}
+                className="be-btn-ghost"
+                style={{
+                  fontSize: "0.78rem",
+                  padding: "6px 10px",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  border: "1px solid #e2e8f0",
+                  background: "#fff",
+                  borderRadius: "8px",
+                  color: "#dc2626",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                }}
+                title="Reset all filters and search"
+              >
+                <XIcon size={12} /> Clear Filter
+              </button>
+            )}
+
             {/* Excel Export Split Button */}
             <div className="be-excel-dropdown-wrap" ref={excelMenuRef}>
               <div style={{ display: "inline-flex", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
@@ -2699,7 +3380,7 @@ export default function BillEntryPage() {
             </div>
 
             {/* Search Input */}
-            <div style={{ width: "260px", maxWidth: "100%" }}>
+            <div style={{ width: "240px", maxWidth: "100%" }}>
               <input
                 type="text"
                 className="be-input"
@@ -2711,224 +3392,197 @@ export default function BillEntryPage() {
           </div>
         </div>
 
-        {/* Filter Toolbar Row: Left = Balance Filter, Right = Duration Filter (Same Line) */}
-        <div className="be-toolbar-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-          {/* Left: Balance filter pills */}
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-            <div className="be-filter-group">
+        {/* Filter Toolbar Row: Left = Duration Filter, Right = Balance/Status Filter (Strictly Same Row, Middle Aligned) */}
+        <div
+          className="be-toolbar-row"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "nowrap",
+            gap: "8px",
+            overflowX: "auto",
+            paddingBottom: "2px",
+          }}
+        >
+          {/* Left Side: Duration Filter */}
+          <div
+            className="ex-period-bar"
+            style={{
+              marginBottom: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              flexShrink: 0,
+              gap: "6px",
+            }}
+          >
+            <div className="be-duration-group" style={{ padding: 2, gap: 2 }}>
+              {KPI_MODES.map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  style={{ padding: "4px 7px", fontSize: "0.74rem" }}
+                  className={`be-duration-btn ${durationMode === m.key ? "active" : ""}`}
+                  onClick={() => {
+                    setDurationMode(m.key);
+                    if (m.key === "week") {
+                      setTableRef(weekStart(tableRef || today()));
+                    }
+                  }}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            {durationMode !== "all" && (
+              <div className="ex-nav-group" style={{ gap: 4 }}>
+                <button
+                  type="button"
+                  className="ex-arrow"
+                  style={{ width: 26, height: 26 }}
+                  onClick={() => setTableRef(shiftKpiRef(durationMode, tableRef, -1))}
+                  aria-label="Previous"
+                  title="Previous period"
+                >
+                  <ChevronLeftIcon size={11} />
+                </button>
+                <span
+                  className="ex-range-label"
+                  style={{ fontSize: "0.78rem", minWidth: 120, padding: "0 4px" }}
+                >
+                  {tableRange.label}
+                </span>
+                <button
+                  type="button"
+                  className="ex-arrow"
+                  style={{ width: 26, height: 26 }}
+                  onClick={() => setTableRef(shiftKpiRef(durationMode, tableRef, 1))}
+                  aria-label="Next"
+                  title="Next period"
+                >
+                  <ChevronRightIcon size={11} />
+                </button>
+                <button
+                  type="button"
+                  className="be-nav-btn"
+                  style={{ fontSize: "0.72rem", padding: "3px 6px" }}
+                  onClick={() => {
+                    if (durationMode === "week") {
+                      setTableRef(weekStart(today()));
+                    } else {
+                      setTableRef(today());
+                    }
+                  }}
+                  title={durationMode === "week" ? "Current Week (Saturday to Friday)" : undefined}
+                >
+                  {durationMode === "day"
+                    ? "Today"
+                    : durationMode === "week"
+                    ? "This Week"
+                    : durationMode === "month"
+                    ? "This Month"
+                    : "This Year"}
+                </button>
+                <input
+                  type="date"
+                  className="be-input"
+                  style={{ width: 115, padding: "2px 4px", fontSize: "0.72rem", height: 26 }}
+                  value={tableRef}
+                  onChange={(e) => {
+                    if (!e.target.value) return;
+                    if (durationMode === "week") {
+                      setTableRef(weekStart(e.target.value));
+                    } else {
+                      setTableRef(e.target.value);
+                    }
+                  }}
+                  aria-label="Jump to date"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Right Side: Balance / Status Filter (Compact, same style as duration filter, English only) */}
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              flexShrink: 0,
+              marginLeft: "auto",
+            }}
+          >
+            <div className="be-duration-group" style={{ padding: 2, gap: 2 }}>
               <button
                 type="button"
                 onClick={() => setBalanceFilter("all")}
-                className={`be-filter-btn ${balanceFilter === "all" ? "active" : ""}`}
+                style={{ padding: "4px 7px", fontSize: "0.74rem" }}
+                className={`be-duration-btn ${balanceFilter === "all" ? "active" : ""}`}
               >
                 <span>All Invoices</span>
-                <span className="be-pill-badge">{durationFilteredBills.length}</span>
+                <span
+                  className="be-pill-badge"
+                  style={{ fontSize: "0.65rem", padding: "0 4px", minWidth: 15, height: 15, lineHeight: "15px" }}
+                >
+                  {durationFilteredBills.length}
+                </span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setBalanceFilter("due")}
-                className={`be-filter-btn ${balanceFilter === "due" ? "active filter-due" : ""}`}
+                style={{ padding: "4px 7px", fontSize: "0.74rem", ...(balanceFilter === "due" ? { color: "#dc2626" } : {}) }}
+                className={`be-duration-btn ${balanceFilter === "due" ? "active filter-due" : ""}`}
               >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                  <svg width="7" height="7" viewBox="0 0 10 10" fill="#dc2626">
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                  <svg width="5" height="5" viewBox="0 0 10 10" fill="#dc2626">
                     <circle cx="5" cy="5" r="4.5" />
                   </svg>
-                  Due Only (বকেয়া)
+                  Due Only
                 </span>
-                <span className="be-pill-badge due">{dueBillsCount}</span>
+                <span
+                  className="be-pill-badge due"
+                  style={{ fontSize: "0.65rem", padding: "0 4px", minWidth: 15, height: 15, lineHeight: "15px" }}
+                >
+                  {dueBillsCount}
+                </span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setBalanceFilter("advance")}
-                className={`be-filter-btn ${balanceFilter === "advance" ? "active filter-adv" : ""}`}
+                style={{ padding: "4px 7px", fontSize: "0.74rem", ...(balanceFilter === "advance" ? { color: "#16a34a" } : {}) }}
+                className={`be-duration-btn ${balanceFilter === "advance" ? "active filter-adv" : ""}`}
               >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                  <svg width="7" height="7" viewBox="0 0 10 10" fill="#16a34a">
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                  <svg width="5" height="5" viewBox="0 0 10 10" fill="#16a34a">
                     <circle cx="5" cy="5" r="4.5" />
                   </svg>
-                  Advance Only (অগ্রিম)
+                  Advance Only
                 </span>
-                <span className="be-pill-badge adv">{advanceBillsCount}</span>
+                <span
+                  className="be-pill-badge adv"
+                  style={{ fontSize: "0.65rem", padding: "0 4px", minWidth: 15, height: 15, lineHeight: "15px" }}
+                >
+                  {advanceBillsCount}
+                </span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setBalanceFilter("paid")}
-                className={`be-filter-btn ${balanceFilter === "paid" ? "active" : ""}`}
+                style={{ padding: "4px 7px", fontSize: "0.74rem" }}
+                className={`be-duration-btn ${balanceFilter === "paid" ? "active" : ""}`}
               >
                 <span>Fully Paid</span>
-                <span className="be-pill-badge paid">{paidBillsCount}</span>
-              </button>
-            </div>
-
-            {(balanceFilter !== "all" || durationMode !== "all") && (
-              <button
-                type="button"
-                onClick={() => {
-                  setBalanceFilter("all");
-                  setDurationMode("all");
-                  setShowMonthDropdown(false);
-                  setShowYearDropdown(false);
-                }}
-                className="be-btn-ghost"
-                style={{ fontSize: "0.8rem", padding: "4px 8px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}
-                title="Reset all filters"
-              >
-                <XIcon size={12} /> Clear Filter
-              </button>
-            )}
-          </div>
-
-          {/* Right Side: Duration Filter (All, Day, Week, Month, Year) */}
-          <div className="be-duration-wrap">
-            <div className="be-duration-group">
-              <button
-                type="button"
-                onClick={() => {
-                  setDurationMode("all");
-                  setShowMonthDropdown(false);
-                  setShowYearDropdown(false);
-                }}
-                className={`be-duration-btn ${durationMode === "all" ? "active" : ""}`}
-                title="All Time (সব সময়)"
-              >
-                All
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setDurationMode("day");
-                  setShowMonthDropdown(false);
-                  setShowYearDropdown(false);
-                }}
-                className={`be-duration-btn ${durationMode === "day" ? "active" : ""}`}
-                title="Today (আজকের দিন অনুযায়ী অটো)"
-              >
-                Day
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setDurationMode("week");
-                  setShowMonthDropdown(false);
-                  setShowYearDropdown(false);
-                }}
-                className={`be-duration-btn ${durationMode === "week" ? "active" : ""}`}
-                title="This Week (চলতি সপ্তাহ অনুযায়ী অটো)"
-              >
-                Week
-              </button>
-
-              {/* Month Dropdown Button */}
-              <div className="be-duration-item-wrap" ref={monthDropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDurationMode("month");
-                    setShowMonthDropdown((prev) => !prev);
-                    setShowYearDropdown(false);
-                  }}
-                  className={`be-duration-btn ${durationMode === "month" ? "active" : ""}`}
-                  title="Click to select Month & Year"
+                <span
+                  className="be-pill-badge paid"
+                  style={{ fontSize: "0.65rem", padding: "0 4px", minWidth: 15, height: 15, lineHeight: "15px" }}
                 >
-                  <span>{durationMode === "month" ? `Month (${MONTH_SHORT[selectedMonth - 1]})` : "Month"}</span>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </button>
-
-                {showMonthDropdown && (
-                  <div className="be-popover-dropdown">
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
-                        Select Month & Year
-                      </div>
-                      <div style={{ display: "flex", gap: "6px" }}>
-                        <select
-                          value={selectedMonth}
-                          onChange={(e) => {
-                            setSelectedMonth(Number(e.target.value));
-                            setDurationMode("month");
-                          }}
-                          className="be-duration-select"
-                          title="Select Month"
-                        >
-                          {MONTH_SHORT.map((name, idx) => (
-                            <option key={idx + 1} value={idx + 1}>
-                              {name}
-                            </option>
-                          ))}
-                        </select>
-
-                        <select
-                          value={selectedYear}
-                          onChange={(e) => {
-                            setSelectedYear(Number(e.target.value));
-                            setDurationMode("month");
-                          }}
-                          className="be-duration-select"
-                          title="Select Year"
-                        >
-                          {availableYears.map((y) => (
-                            <option key={y} value={y}>
-                              {y}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Year Dropdown Button */}
-              <div className="be-duration-item-wrap" ref={yearDropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDurationMode("year");
-                    setShowYearDropdown((prev) => !prev);
-                    setShowMonthDropdown(false);
-                  }}
-                  className={`be-duration-btn ${durationMode === "year" ? "active" : ""}`}
-                  title="Click to select Year"
-                >
-                  <span>{durationMode === "year" ? `Year (${selectedYear})` : "Year"}</span>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </button>
-
-                {showYearDropdown && (
-                  <div className="be-popover-dropdown">
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
-                        Select Year
-                      </div>
-                      <select
-                        value={selectedYear}
-                        onChange={(e) => {
-                          setSelectedYear(Number(e.target.value));
-                          setDurationMode("year");
-                        }}
-                        className="be-duration-select"
-                        style={{ width: "100%" }}
-                        title="Select Year"
-                      >
-                        {availableYears.map((y) => (
-                          <option key={y} value={y}>
-                            {y}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-              </div>
+                  {paidBillsCount}
+                </span>
+              </button>
             </div>
           </div>
         </div>
@@ -3030,17 +3684,17 @@ export default function BillEntryPage() {
                         <td style={{ textAlign: "right", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" }}>
                           ৳ {fmt(totalBill)}
                         </td>
-                        <td style={{ textAlign: "right", color: invoicePayment > 0 ? "#059669" : "var(--be-text-muted)", fontWeight: 700, whiteSpace: "nowrap" }}>
-                          {invoicePayment > 0 ? `৳ ${fmt(invoicePayment)}` : "—"}
+                        <td style={{ textAlign: "right", color: invoicePayment >= 0.005 ? "#059669" : "var(--be-text-muted)", fontWeight: 700, whiteSpace: "nowrap" }}>
+                          {invoicePayment >= 0.005 ? `৳ ${fmt(invoicePayment)}` : "—"}
                         </td>
-                        <td style={{ textAlign: "right", fontWeight: 700, color: dueThisBill > 0 ? "#dc2626" : "var(--be-text-muted)", whiteSpace: "nowrap" }}>
-                          {dueThisBill > 0 ? `৳ ${fmt(dueThisBill)}` : "—"}
+                        <td style={{ textAlign: "right", fontWeight: 700, color: dueThisBill >= 0.005 ? "#dc2626" : "var(--be-text-muted)", whiteSpace: "nowrap" }}>
+                          {dueThisBill >= 0.005 ? `৳ ${fmt(dueThisBill)}` : "—"}
                         </td>
-                        <td style={{ textAlign: "right", fontWeight: 700, color: advanceThisBill > 0 ? "#059669" : "var(--be-text-muted)", whiteSpace: "nowrap" }}>
-                          {advanceThisBill > 0 ? `৳ ${fmt(advanceThisBill)}` : "—"}
+                        <td style={{ textAlign: "right", fontWeight: 700, color: advanceThisBill >= 0.005 ? "#059669" : "var(--be-text-muted)", whiteSpace: "nowrap" }}>
+                          {advanceThisBill >= 0.005 ? `৳ ${fmt(advanceThisBill)}` : "—"}
                         </td>
-                        <td style={{ textAlign: "right", fontWeight: 700, color: dueReceived > 0 ? "#2563eb" : "var(--be-text-muted)", whiteSpace: "nowrap" }}>
-                          {dueReceived > 0 ? `৳ ${fmt(dueReceived)}` : "—"}
+                        <td style={{ textAlign: "right", fontWeight: 700, color: dueReceived >= 0.005 ? "#2563eb" : "var(--be-text-muted)", whiteSpace: "nowrap" }}>
+                          {dueReceived >= 0.005 ? `৳ ${fmt(dueReceived)}` : "—"}
                         </td>
                         <td style={{ textAlign: "right", verticalAlign: "middle", whiteSpace: "nowrap" }}>
                           <div>
@@ -3048,17 +3702,17 @@ export default function BillEntryPage() {
                               style={{
                                 fontWeight: 800,
                                 fontSize: "0.88rem",
-                                color: rBal > 0 ? "#dc2626" : rBal < 0 ? "#059669" : "var(--be-text-muted)",
+                                color: rBal >= 0.005 ? "#dc2626" : rBal <= -0.005 ? "#059669" : "var(--be-text-muted)",
                               }}
                             >
-                              {rBal > 0
+                              {rBal >= 0.005
                                 ? `Due: ৳ ${fmt(rBal)}`
-                                : rBal < 0
+                                : rBal <= -0.005
                                 ? `Adv: ৳ ${fmt(Math.abs(rBal))}`
                                 : "Fully Settled"}
                             </div>
 
-                            {prev !== 0 && (
+                            {Math.abs(prev) >= 0.005 && (
                               <div
                                 style={{
                                   fontSize: "0.7rem",
@@ -3066,12 +3720,12 @@ export default function BillEntryPage() {
                                   marginTop: "2px",
                                   lineHeight: 1.2,
                                 }}
-                                title={`Previous Balance: ${prev > 0 ? `Due ৳ ${fmt(prev)}` : `Adv ৳ ${fmt(Math.abs(prev))}`}`}
+                                title={`Previous Balance: ${prev >= 0.005 ? `Due ৳ ${fmt(prev)}` : `Adv ৳ ${fmt(Math.abs(prev))}`}`}
                               >
                                 <span>
                                   Prev:{" "}
-                                  <strong style={{ color: prev > 0 ? "#b91c1c" : "#047857" }}>
-                                    {prev > 0 ? `Due ${fmt(prev)}` : `Adv ${fmt(Math.abs(prev))}`}
+                                  <strong style={{ color: prev >= 0.005 ? "#b91c1c" : "#047857" }}>
+                                    {prev >= 0.005 ? `Due ${fmt(prev)}` : `Adv ${fmt(Math.abs(prev))}`}
                                   </strong>
                                 </span>
                               </div>
@@ -3141,7 +3795,14 @@ export default function BillEntryPage() {
                                       {items.map((it, itIdx) => (
                                         <tr key={itIdx} style={{ borderTop: "1px solid #f1f5f9" }}>
                                           <td style={{ padding: "7px 10px", textAlign: "center", color: "#64748b" }}>{itIdx + 1}</td>
-                                          <td style={{ padding: "7px 10px", fontWeight: 700, color: "#1e293b" }}>{it.name || "—"}</td>
+                                          <td style={{ padding: "7px 10px", color: "#1e293b" }}>
+                                            <div style={{ fontWeight: 700 }}>{it.name || "—"}</div>
+                                            {it.note && (
+                                              <div style={{ fontSize: "0.72rem", color: "#64748b", marginTop: "1px", fontStyle: "italic" }}>
+                                                Note: {it.note}
+                                              </div>
+                                            )}
+                                          </td>
                                           <td style={{ padding: "7px 10px", textAlign: "right", color: "#475569" }}>{it.weight || "—"}</td>
                                           <td style={{ padding: "7px 10px", textAlign: "right", color: "#475569" }}>{it.quantity || "—"}</td>
                                           <td style={{ padding: "7px 10px", textAlign: "right", color: "#475569" }}>{it.rate ? `৳ ${fmt(it.rate)}` : "—"}</td>
@@ -3228,20 +3889,20 @@ export default function BillEntryPage() {
                   <td style={{ textAlign: "right", fontWeight: 800, fontSize: "0.9rem", color: "#0f172a", whiteSpace: "nowrap", padding: "12px 8px" }}>
                     ৳ {fmt(filteredTableTotals.totalBill)}
                   </td>
-                  <td style={{ textAlign: "right", fontWeight: 800, fontSize: "0.9rem", color: filteredTableTotals.totalInvoicePayment > 0 ? "#059669" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "12px 8px" }}>
-                    {filteredTableTotals.totalInvoicePayment > 0 ? `৳ ${fmt(filteredTableTotals.totalInvoicePayment)}` : "৳ 0.00"}
+                  <td style={{ textAlign: "right", fontWeight: 800, fontSize: "0.9rem", color: filteredTableTotals.totalInvoicePayment >= 0.005 ? "#059669" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "12px 8px" }}>
+                    {filteredTableTotals.totalInvoicePayment >= 0.005 ? `৳ ${fmt(filteredTableTotals.totalInvoicePayment)}` : "৳ 0.00"}
                   </td>
-                  <td style={{ textAlign: "right", fontWeight: 800, fontSize: "0.9rem", color: filteredTableTotals.totalDueThisBill > 0 ? "#dc2626" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "12px 8px" }}>
-                    {filteredTableTotals.totalDueThisBill > 0 ? `৳ ${fmt(filteredTableTotals.totalDueThisBill)}` : "৳ 0.00"}
+                  <td style={{ textAlign: "right", fontWeight: 800, fontSize: "0.9rem", color: filteredTableTotals.totalDueThisBill >= 0.005 ? "#dc2626" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "12px 8px" }}>
+                    {filteredTableTotals.totalDueThisBill >= 0.005 ? `৳ ${fmt(filteredTableTotals.totalDueThisBill)}` : "৳ 0.00"}
                   </td>
-                  <td style={{ textAlign: "right", fontWeight: 800, fontSize: "0.9rem", color: filteredTableTotals.totalAdvanceThisBill > 0 ? "#059669" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "12px 8px" }}>
-                    {filteredTableTotals.totalAdvanceThisBill > 0 ? `৳ ${fmt(filteredTableTotals.totalAdvanceThisBill)}` : "৳ 0.00"}
+                  <td style={{ textAlign: "right", fontWeight: 800, fontSize: "0.9rem", color: filteredTableTotals.totalAdvanceThisBill >= 0.005 ? "#059669" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "12px 8px" }}>
+                    {filteredTableTotals.totalAdvanceThisBill >= 0.005 ? `৳ ${fmt(filteredTableTotals.totalAdvanceThisBill)}` : "৳ 0.00"}
                   </td>
-                  <td style={{ textAlign: "right", fontWeight: 800, fontSize: "0.9rem", color: filteredTableTotals.totalDueReceived > 0 ? "#2563eb" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "12px 8px" }}>
-                    {filteredTableTotals.totalDueReceived > 0 ? `৳ ${fmt(filteredTableTotals.totalDueReceived)}` : "৳ 0.00"}
+                  <td style={{ textAlign: "right", fontWeight: 800, fontSize: "0.9rem", color: filteredTableTotals.totalDueReceived >= 0.005 ? "#2563eb" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "12px 8px" }}>
+                    {filteredTableTotals.totalDueReceived >= 0.005 ? `৳ ${fmt(filteredTableTotals.totalDueReceived)}` : "৳ 0.00"}
                   </td>
                   <td style={{ textAlign: "right", verticalAlign: "middle", whiteSpace: "nowrap", padding: "12px 8px" }}>
-                    {filteredTableTotals.totalDueBalance > 0 && filteredTableTotals.totalAdvBalance > 0 ? (
+                    {filteredTableTotals.totalDueBalance >= 0.005 && filteredTableTotals.totalAdvBalance >= 0.005 ? (
                       <div>
                         <div style={{ fontWeight: 800, fontSize: "0.86rem", color: "#dc2626" }}>
                           Due: ৳ {fmt(filteredTableTotals.totalDueBalance)}
@@ -3250,11 +3911,11 @@ export default function BillEntryPage() {
                           Adv: ৳ {fmt(filteredTableTotals.totalAdvBalance)}
                         </div>
                       </div>
-                    ) : filteredTableTotals.totalDueBalance > 0 ? (
+                    ) : filteredTableTotals.totalDueBalance >= 0.005 ? (
                       <div style={{ fontWeight: 800, fontSize: "0.88rem", color: "#dc2626" }}>
                         Due: ৳ {fmt(filteredTableTotals.totalDueBalance)}
                       </div>
-                    ) : filteredTableTotals.totalAdvBalance > 0 ? (
+                    ) : filteredTableTotals.totalAdvBalance >= 0.005 ? (
                       <div style={{ fontWeight: 800, fontSize: "0.88rem", color: "#059669" }}>
                         Adv: ৳ {fmt(filteredTableTotals.totalAdvBalance)}
                       </div>
@@ -3291,29 +3952,32 @@ export default function BillEntryPage() {
         const editLabour = isEditingModal && editModalData ? parseFloat(editModalData.labour_charge) || 0 : 0;
         const editTransport = isEditingModal && editModalData ? parseFloat(editModalData.transport_cost) || 0 : 0;
         const editDiscount = isEditingModal && editModalData ? parseFloat(editModalData.discount) || 0 : 0;
-        const editTotalBill = Math.max(0, editItemsSubtotal + editLabour + editTransport - editDiscount);
+        const editTotalBill = Math.round(Math.max(0, editItemsSubtotal + editLabour + editTransport - editDiscount) * 100) / 100;
+        const editPayment = isEditingModal && editModalData ? Math.round((parseFloat(editModalData.client_payment) || 0) * 100) / 100 : 0;
         let editDueThisBill = 0;
         let editAdvanceThisBill = 0;
         let editDueReceived = 0;
-        if (editTotalBill > editPayment) {
-          const shortfall = editTotalBill - editPayment;
-          if (prev < 0) {
+        if (editTotalBill - editPayment >= 0.005) {
+          const shortfall = Math.round((editTotalBill - editPayment) * 100) / 100;
+          if (prev <= -0.005) {
             const availAdv = Math.abs(prev);
-            editDueThisBill = availAdv >= shortfall ? 0 : shortfall - availAdv;
+            editDueThisBill = availAdv >= shortfall ? 0 : Math.round((shortfall - availAdv) * 100) / 100;
           } else {
             editDueThisBill = shortfall;
           }
-        } else if (editPayment > editTotalBill) {
-          const excess = editPayment - editTotalBill;
-          if (prev > 0) {
-            editDueReceived = Math.min(prev, excess);
-            editAdvanceThisBill = Math.max(0, excess - prev);
+        } else if (editPayment - editTotalBill >= 0.005) {
+          const excess = Math.round((editPayment - editTotalBill) * 100) / 100;
+          if (prev >= 0.005) {
+            editDueReceived = Math.round(Math.min(prev, excess) * 100) / 100;
+            editAdvanceThisBill = Math.round(Math.max(0, excess - prev) * 100) / 100;
           } else {
             editAdvanceThisBill = excess;
           }
         }
-        const editDueAdvance = editTotalBill - editPayment;
-        const editRunningBalance = (prev || 0) + editDueAdvance;
+        let editDueAdvance = Math.round((editTotalBill - editPayment) * 100) / 100;
+        if (Math.abs(editDueAdvance) < 0.005) editDueAdvance = 0;
+        let editRunningBalance = Math.round(((prev || 0) + editDueAdvance) * 100) / 100;
+        if (Math.abs(editRunningBalance) < 0.005) editRunningBalance = 0;
 
         return (
           <div
@@ -3680,7 +4344,8 @@ export default function BillEntryPage() {
                         <thead>
                           <tr style={{ background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", color: "#475569", textTransform: "uppercase", fontSize: "0.72rem" }}>
                             <th style={{ padding: "8px 10px", width: "30px", textAlign: "center" }}>#</th>
-                            <th style={{ padding: "8px 10px", minWidth: "160px" }}>Item Description</th>
+                            <th style={{ padding: "8px 10px", minWidth: "150px" }}>Item Description</th>
+                            <th style={{ padding: "8px 10px", width: "135px" }}>Item Note</th>
                             <th style={{ padding: "8px 10px", width: "95px", textAlign: "right" }}>Quantity</th>
                             <th style={{ padding: "8px 10px", width: "80px", textAlign: "center" }}>Unit</th>
                             <th style={{ padding: "8px 10px", width: "85px", textAlign: "right" }}>Rate (৳)</th>
@@ -3703,6 +4368,16 @@ export default function BillEntryPage() {
                                   value={it.name}
                                   placeholder="Item name"
                                   onChange={(e) => handleModalItemChange(i, "name", e.target.value)}
+                                />
+                              </td>
+                              <td style={{ padding: "6px 8px" }}>
+                                <input
+                                  type="text"
+                                  className="be-input"
+                                  style={{ padding: "5px 8px", fontSize: "0.82rem" }}
+                                  value={it.note || ""}
+                                  placeholder="Note / specs"
+                                  onChange={(e) => handleModalItemChange(i, "note", e.target.value)}
                                 />
                               </td>
                               <td style={{ padding: "6px 8px" }}>
@@ -3787,7 +4462,14 @@ export default function BillEntryPage() {
                           {items.map((it, i) => (
                             <tr key={i} style={{ borderBottom: i === items.length - 1 ? "none" : "1px solid #f1f5f9" }}>
                               <td style={{ padding: "9px 12px", textAlign: "center", color: "#94a3b8", fontWeight: 600 }}>{i + 1}</td>
-                              <td style={{ padding: "9px 12px", fontWeight: 700, color: "#0f172a" }}>{it.name || "—"}</td>
+                              <td style={{ padding: "9px 12px", color: "#0f172a" }}>
+                                <div style={{ fontWeight: 700 }}>{it.name || "—"}</div>
+                                {it.note && (
+                                  <div style={{ fontSize: "0.76rem", color: "#64748b", marginTop: "2px", display: "inline-flex", alignItems: "center", gap: 4, background: "#f8fafc", padding: "1px 6px", borderRadius: "4px", border: "1px solid #e2e8f0" }}>
+                                    <span style={{ color: "#94a3b8" }}>Note:</span> {it.note}
+                                  </div>
+                                )}
+                              </td>
                               <td style={{ padding: "9px 12px", textAlign: "right", color: "#475569" }}>{it.quantity !== undefined && it.quantity !== "" ? it.quantity : (it.weight || "—")}</td>
                               <td style={{ padding: "9px 12px", textAlign: "center", color: "#475569" }}>{it.unit || "pcs"}</td>
                               <td style={{ padding: "9px 12px", textAlign: "right", color: "#475569" }}>{it.rate ? `৳ ${fmt(it.rate)}` : "—"}</td>
@@ -3913,18 +4595,18 @@ export default function BillEntryPage() {
                       </span>
                     </div>
 
-                    {dueReceived > 0 && (
+                    {dueReceived >= 0.005 && (
                       <div style={{ display: "flex", justifyContent: "space-between", color: "#2563eb" }}>
                         <span>Due Received:</span>
                         <span style={{ fontWeight: 700 }}>৳ {fmt(dueReceived)}</span>
                       </div>
                     )}
 
-                    {prev !== 0 && (
+                    {Math.abs(prev) >= 0.005 && (
                       <div style={{ display: "flex", justifyContent: "space-between", color: "#64748b", fontSize: "0.8rem" }}>
                         <span>Previous Balance:</span>
-                        <span style={{ fontWeight: 600, color: prev > 0 ? "#dc2626" : "#059669" }}>
-                          {prev > 0 ? `Due ৳ ${fmt(prev)}` : `Adv ৳ ${fmt(Math.abs(prev))}`}
+                        <span style={{ fontWeight: 600, color: prev >= 0.005 ? "#dc2626" : "#059669" }}>
+                          {prev >= 0.005 ? `Due ৳ ${fmt(prev)}` : `Adv ৳ ${fmt(Math.abs(prev))}`}
                         </span>
                       </div>
                     )}
@@ -3937,18 +4619,18 @@ export default function BillEntryPage() {
                         borderTop: "1px dashed #cbd5e1",
                         fontSize: "0.95rem",
                         fontWeight: 800,
-                        color: (isEditingModal ? editRunningBalance : rBal) > 0
+                        color: (isEditingModal ? editRunningBalance : rBal) >= 0.005
                           ? "#dc2626"
-                          : (isEditingModal ? editRunningBalance : rBal) < 0
+                          : (isEditingModal ? editRunningBalance : rBal) <= -0.005
                           ? "#059669"
                           : "#475569",
                       }}
                     >
                       <span>Final Net Balance:</span>
                       <span>
-                        {(isEditingModal ? editRunningBalance : rBal) > 0
+                        {(isEditingModal ? editRunningBalance : rBal) >= 0.005
                           ? `Due: ৳ ${fmt(isEditingModal ? editRunningBalance : rBal)}`
-                          : (isEditingModal ? editRunningBalance : rBal) < 0
+                          : (isEditingModal ? editRunningBalance : rBal) <= -0.005
                           ? `Adv: ৳ ${fmt(Math.abs(isEditingModal ? editRunningBalance : rBal))}`
                           : "Fully Settled"}
                       </span>

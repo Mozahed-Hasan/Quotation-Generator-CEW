@@ -20,17 +20,96 @@ import "../bill-calculator/bill.css";
 import "./all-entries.css";
 
 const ITEM_PRESETS = [
-  "Matte Sheet",
-  "GP Sheet",
-  "MS Sheet",
-  "Color Coil",
-  "Profile Sheet",
-  "Iron Item",
-  "Insulation",
-  "Screw",
-  "Gum Tape",
+  "Design Sheet",
+  "Plain Sheet Matte",
+  "GP Door Frame",
   "Cork Sheet",
+  "Bata",
+  "Palla Mojuri",
+  "Iron Item",
+  "Making Charge",
+  "Profile Sheet Local",
+  "Profile Sheet Imported",
+  "Canopy",
+  "Insulation",
+  'Screw 2" China',
+  'Screw 1" China',
+  'Screw 2" Taiwan',
+  'Screw 1" Taiwan',
+  "Gum Tape",
+  "Side Cap",
+  "Tua",
+  "Drain",
+  "Almari",
+  "Metal Bed",
+  "Table",
+  "Dolna",
+  "Trunk",
+  "Metal Furniture",
+  "Laser Cutting Charge",
+  "Box Metal Door",
+  "Single Metal Door",
+  "PVC Door",
+  "Metal Gate",
+  "Lasercutting Metal Gate",
+  "Thai Window Grill",
+  "Sheet Window",
+  "Mobile Window",
+  "MS Sheet",
+  "GP Sheet",
+  "C-Purlin",
+  "Decking Sheet",
+  "Transportation",
 ];
+
+const ITEM_SUGGESTED_UNIT = {
+  "design sheet": "kg",
+  "plain sheet matte": "kg",
+  "gp door frame": "kg",
+  "cork sheet": "pcs",
+  "bata": "kg",
+  "palla mojuri": "set",
+  "iron item": "kg",
+  "making charge": "pcs",
+  "profile sheet local": "sft",
+  "profile sheet imported": "sft",
+  "canopy": "sft",
+  "insulation": "sft",
+  'screw 2" china': "pcs",
+  'screw 1" china': "pcs",
+  'screw 2" taiwan': "pcs",
+  'screw 1" taiwan': "pcs",
+  "gum tape": "pcs",
+  "side cap": "rft",
+  "tua": "rft",
+  "drain": "rft",
+  "almari": "kg",
+  "metal bed": "pcs",
+  "table": "pcs",
+  "dolna": "pcs",
+  "trunk": "pcs",
+  "metal furniture": "pcs",
+  "laser cutting charge": "sft",
+  "box metal door": "kg",
+  "single metal door": "kg",
+  "pvc door": "pcs",
+  "metal gate": "kg",
+  "lasercutting metal gate": "sft",
+  "thai window grill": "kg",
+  "sheet window": "kg",
+  "mobile window": "kg",
+  "ms sheet": "kg",
+  "gp sheet": "kg",
+  "c-purlin": "kg",
+  "decking sheet": "kg",
+  "transportation": "trip",
+};
+
+const getSuggestedUnit = (name) => {
+  if (!name) return "";
+  const cleaned = String(name).trim().toLowerCase().replace(/[”"″]/g, '"');
+  return ITEM_SUGGESTED_UNIT[cleaned] || "";
+};
 
 const CATEGORIES = [
   "General",
@@ -154,13 +233,12 @@ const isDepositCategory = (cat) => {
   return c === "bank deposit" || c === "company bank deposit";
 };
 
-function generateUniqueCustomerId(mobile, dateStr) {
-  const cleanMobile = String(mobile || "").replace(/[^0-9]/g, "");
-  const last5 = cleanMobile.length >= 5 ? cleanMobile.slice(-5) : cleanMobile.padStart(5, "0");
-  const dt = dateStr ? new Date(dateStr) : new Date();
+function generateUniqueCustomerId(mobileOrDate, dateStr) {
+  const dt = dateStr ? new Date(dateStr) : (mobileOrDate && String(mobileOrDate).includes("-") ? new Date(mobileOrDate) : new Date());
   const m = String(dt.getMonth() + 1).padStart(2, "0");
   const y = dt.getFullYear();
-  return `CID-${m}-${y}-${last5}`;
+  const random5 = Math.floor(10000 + Math.random() * 90000);
+  return `CID-${m}-${y}-${random5}`;
 }
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -208,6 +286,7 @@ function getTypeBadge(item) {
 export default function AllEntriesAuditPage() {
   const router = useRouter();
   const [entries, setEntries] = useState([]);
+  const [recycleBin, setRecycleBin] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -294,6 +373,7 @@ export default function AllEntriesAuditPage() {
       const data = await res.json();
       if (res.ok) {
         setEntries(data.entries || []);
+        setRecycleBin(data.recycleBin || []);
         setCurrentUser(data.user || null);
       } else {
         setErrMsg(data.error || "Failed to load system entries");
@@ -314,7 +394,7 @@ export default function AllEntriesAuditPage() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) setExtraStaff(parsed);
       }
-    } catch (_) {}
+    } catch (_) { }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -336,7 +416,7 @@ export default function AllEntriesAuditPage() {
     setExtraStaff(next);
     try {
       localStorage.setItem("cew_extra_staff", JSON.stringify(next));
-    } catch (_) {}
+    } catch (_) { }
   }
 
   const allStaff = useMemo(() => {
@@ -455,6 +535,7 @@ export default function AllEntriesAuditPage() {
       customer_bill: entries.filter((e) => e.source === "customer_bill").length,
       dealer_supplier: entries.filter((e) => e.source === "dealer_supplier" || e.isSynced).length,
       expense: entries.filter((e) => e.source === "expense").length,
+      recycle_bin: recycleBin.length,
     };
 
     return {
@@ -464,7 +545,30 @@ export default function AllEntriesAuditPage() {
       totalAmount,
       moduleCounts,
     };
-  }, [entries]);
+  }, [entries, recycleBin]);
+
+  // Filtered Recycle Bin items
+  const filteredRecycleBin = useMemo(() => {
+    if (!recycleBin || !recycleBin.length) return [];
+    const q = search.trim().toLowerCase();
+    if (!q) return recycleBin;
+    return recycleBin.filter((item) => {
+      const hay = [
+        item.party,
+        item.customerName,
+        item.billNo,
+        item.subType,
+        item.sourceLabel,
+        item.deletedBy,
+        item.note,
+        String(item.amount),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [recycleBin, search]);
 
   // Chronological Customer Running Balance Calculation
   const customerBalanceMap = useMemo(() => {
@@ -499,38 +603,40 @@ export default function AllEntriesAuditPage() {
       let running = 0;
       sorted.forEach((b) => {
         const prev = running;
-        const totalBill = Number(b.totalBill || 0);
-        const payment = Number(b.payment || 0);
-        const net = totalBill - payment;
+        const totalBill = Math.round((Number(b.totalBill) || 0) * 100) / 100;
+        const payment = Math.round((Number(b.payment) || 0) * 100) / 100;
+        let net = Math.round((totalBill - payment) * 100) / 100;
+        if (Math.abs(net) < 0.005) net = 0;
 
         let dueThisBill = 0;
         let advanceThisBill = 0;
         let dueReceived = 0;
 
-        if (totalBill > payment) {
-          const shortfall = totalBill - payment;
-          if (prev < 0) {
+        if (totalBill - payment >= 0.005) {
+          const shortfall = Math.round((totalBill - payment) * 100) / 100;
+          if (prev <= -0.005) {
             // Customer had previous advance balance
             const availableAdvance = Math.abs(prev);
             if (availableAdvance >= shortfall) {
               dueThisBill = 0;
             } else {
-              dueThisBill = shortfall - availableAdvance;
+              dueThisBill = Math.round((shortfall - availableAdvance) * 100) / 100;
             }
           } else {
             dueThisBill = shortfall;
           }
-        } else if (payment > totalBill) {
-          const excess = payment - totalBill;
-          if (prev > 0) {
-            dueReceived = Math.min(prev, excess);
-            advanceThisBill = Math.max(0, excess - prev);
+        } else if (payment - totalBill >= 0.005) {
+          const excess = Math.round((payment - totalBill) * 100) / 100;
+          if (prev >= 0.005) {
+            dueReceived = Math.round(Math.min(prev, excess) * 100) / 100;
+            advanceThisBill = Math.round(Math.max(0, excess - prev) * 100) / 100;
           } else {
             advanceThisBill = excess;
           }
         }
 
-        running += net;
+        running = Math.round((running + net) * 100) / 100;
+        if (Math.abs(running) < 0.005) running = 0;
         infoMap.set(b.id, {
           prevBalance: prev,
           billNet: net,
@@ -586,7 +692,7 @@ export default function AllEntriesAuditPage() {
     setPurchaseModalErr("");
     const isBill = b.type === "bill" || (!b.type && b.subType === "Bill") || (b.source === "dealer_supplier" && b.flow === "none");
     const rawItems = Array.isArray(b.items) && b.items.length > 0 ? b.items : [];
-    
+
     setEditPurchaseModalData({
       id: b.id,
       source: b.source,
@@ -604,15 +710,15 @@ export default function AllEntriesAuditPage() {
       transport_cost: b.transport_cost !== undefined ? String(b.transport_cost) : (b.transportCost !== undefined ? String(b.transportCost) : ""),
       items: isBill
         ? (rawItems.length > 0
-            ? rawItems.map((it) => ({
-                name: it.name || "",
-                quantity: it.quantity !== undefined && it.quantity !== "" ? String(it.quantity) : (it.weight != null ? String(it.weight) : ""),
-                unit: it.unit || (it.weight ? "kg" : "pcs"),
-                weight: it.weight != null ? String(it.weight) : "",
-                rate: it.rate != null ? String(it.rate) : "",
-                subtotal: it.subtotal != null ? String(it.subtotal) : "",
-              }))
-            : [{ name: "", quantity: "", unit: "kg", rate: "", subtotal: "" }])
+          ? rawItems.map((it) => ({
+            name: it.name || "",
+            quantity: it.quantity !== undefined && it.quantity !== "" ? String(it.quantity) : (it.weight != null ? String(it.weight) : ""),
+            unit: it.unit || (it.weight ? "kg" : "pcs"),
+            weight: it.weight != null ? String(it.weight) : "",
+            rate: it.rate != null ? String(it.rate) : "",
+            subtotal: it.subtotal != null ? String(it.subtotal) : "",
+          }))
+          : [{ name: "", quantity: "", unit: "kg", rate: "", subtotal: "" }])
         : [],
     });
   };
@@ -708,15 +814,15 @@ export default function AllEntriesAuditPage() {
         const cleanItems =
           editPurchaseModalData.type === "bill" && Array.isArray(editPurchaseModalData.items)
             ? editPurchaseModalData.items
-                .map((it) => ({
-                  name: (it.name || "").trim(),
-                  quantity: it.quantity !== "" ? parseFloat(it.quantity) || 0 : null,
-                  unit: it.unit || "kg",
-                  weight: it.quantity !== "" ? parseFloat(it.quantity) || 0 : (it.weight !== "" ? parseFloat(it.weight) || 0 : null),
-                  rate: it.rate !== "" ? parseFloat(it.rate) || 0 : null,
-                  subtotal: it.subtotal !== "" ? parseFloat(it.subtotal) || 0 : null,
-                }))
-                .filter((it) => it.name || it.quantity || it.weight || it.rate || it.subtotal)
+              .map((it) => ({
+                name: (it.name || "").trim(),
+                quantity: it.quantity !== "" ? parseFloat(it.quantity) || 0 : null,
+                unit: it.unit || "kg",
+                weight: it.quantity !== "" ? parseFloat(it.quantity) || 0 : (it.weight !== "" ? parseFloat(it.weight) || 0 : null),
+                rate: it.rate !== "" ? parseFloat(it.rate) || 0 : null,
+                subtotal: it.subtotal !== "" ? parseFloat(it.subtotal) || 0 : null,
+              }))
+              .filter((it) => it.name || it.quantity || it.weight || it.rate || it.subtotal)
             : null;
 
         const payload = {
@@ -869,8 +975,8 @@ export default function AllEntriesAuditPage() {
       paid_to: st,
       title:
         !prev.title ||
-        prev.title === "Staff Salary" ||
-        prev.title.startsWith("Salary -")
+          prev.title === "Staff Salary" ||
+          prev.title.startsWith("Salary -")
           ? `Salary - ${st}`
           : prev.title,
     }));
@@ -889,8 +995,8 @@ export default function AllEntriesAuditPage() {
       phone: c.phone || c.mobile || prev.phone,
       title:
         !prev.title ||
-        prev.title === "Supplier Payment" ||
-        prev.title.startsWith("Supplier Payment -")
+          prev.title === "Supplier Payment" ||
+          prev.title.startsWith("Supplier Payment -")
           ? `Supplier Payment - ${c.name}`
           : prev.title,
     }));
@@ -1056,13 +1162,14 @@ export default function AllEntriesAuditPage() {
       customer_address: b.customerAddress || "",
       items: rawItems.length > 0
         ? rawItems.map((it) => ({
-            name: it.name || "",
-            quantity: it.quantity !== undefined && it.quantity !== null && it.quantity !== "" ? String(it.quantity) : (it.weight !== undefined && it.weight !== null ? String(it.weight) : ""),
-            unit: it.unit || "pcs",
-            rate: it.rate !== undefined && it.rate !== null ? String(it.rate) : "",
-            subtotal: it.subtotal !== undefined && it.subtotal !== null ? String(it.subtotal) : "",
-          }))
-        : [{ name: "", quantity: "", unit: "pcs", rate: "", subtotal: "" }],
+          name: it.name || "",
+          note: it.note || "",
+          quantity: it.quantity !== undefined && it.quantity !== null && it.quantity !== "" ? String(it.quantity) : (it.weight !== undefined && it.weight !== null ? String(it.weight) : ""),
+          unit: it.unit || "pcs",
+          rate: it.rate !== undefined && it.rate !== null ? String(it.rate) : "",
+          subtotal: it.subtotal !== undefined && it.subtotal !== null ? String(it.subtotal) : "",
+        }))
+        : [{ name: "", note: "", quantity: "", unit: "pcs", rate: "", subtotal: "" }],
       labour_charge: b.labourCharge !== undefined ? String(b.labourCharge) : "0",
       transport_cost: b.transportCost !== undefined ? String(b.transportCost) : "0",
       discount: b.discount !== undefined ? String(b.discount) : "0",
@@ -1075,6 +1182,14 @@ export default function AllEntriesAuditPage() {
     setEditCustomerModalData((prev) => {
       const items = [...prev.items];
       const row = { ...items[idx], [field]: val };
+
+      // Auto Suggest Unit when Item Name is chosen or changed
+      if (field === "name") {
+        const suggested = getSuggestedUnit(val);
+        if (suggested) {
+          row.unit = suggested;
+        }
+      }
 
       // Auto Subtotal Calculation: Quantity * Rate
       if (field === "quantity" || field === "rate" || field === "weight") {
@@ -1095,7 +1210,7 @@ export default function AllEntriesAuditPage() {
   const handleCustomerModalAddItem = () => {
     setEditCustomerModalData((prev) => ({
       ...prev,
-      items: [...prev.items, { name: "", quantity: "", unit: "pcs", rate: "", subtotal: "" }],
+      items: [...prev.items, { name: "", note: "", quantity: "", unit: "pcs", rate: "", subtotal: "" }],
     }));
   };
 
@@ -1122,20 +1237,24 @@ export default function AllEntriesAuditPage() {
     const l = parseFloat(editCustomerModalData.labour_charge) || 0;
     const t = parseFloat(editCustomerModalData.transport_cost) || 0;
     const d = parseFloat(editCustomerModalData.discount) || 0;
-    return Math.max(0, editCustomerItemsSubtotal + l + t - d);
+    return Math.round(Math.max(0, editCustomerItemsSubtotal + l + t - d) * 100) / 100;
   }, [editCustomerModalData, editCustomerItemsSubtotal]);
 
   const editCustomerDueAdvance = useMemo(() => {
     if (!editCustomerModalData) return 0;
-    const p = parseFloat(editCustomerModalData.client_payment) || 0;
-    return editCustomerTotalBill - p;
+    const p = Math.round((parseFloat(editCustomerModalData.client_payment) || 0) * 100) / 100;
+    let dueAdv = Math.round((editCustomerTotalBill - p) * 100) / 100;
+    if (Math.abs(dueAdv) < 0.005) dueAdv = 0;
+    return dueAdv;
   }, [editCustomerModalData, editCustomerTotalBill]);
 
   const editCustomerRunningBalance = useMemo(() => {
     if (!selectedCustomerBillForModal) return 0;
     const balInfo = customerBalanceMap.get(selectedCustomerBillForModal.id) || {};
     const prev = balInfo.prevBalance || 0;
-    return prev + editCustomerDueAdvance;
+    let rBal = Math.round((prev + editCustomerDueAdvance) * 100) / 100;
+    if (Math.abs(rBal) < 0.005) rBal = 0;
+    return rBal;
   }, [selectedCustomerBillForModal, customerBalanceMap, editCustomerDueAdvance]);
 
   async function handleSaveCustomerModalEdit() {
@@ -1269,11 +1388,11 @@ export default function AllEntriesAuditPage() {
           prev.map((e) =>
             e.uid === item.uid
               ? {
-                  ...e,
-                  status: newStatus,
-                  approvedBy: newStatus === "approved" ? (currentUser?.username || "Admin") : null,
-                  approvedAt: newStatus === "approved" ? new Date().toISOString() : null,
-                }
+                ...e,
+                status: newStatus,
+                approvedBy: newStatus === "approved" ? (currentUser?.username || "Admin") : null,
+                approvedAt: newStatus === "approved" ? new Date().toISOString() : null,
+              }
               : e
           )
         );
@@ -1375,9 +1494,9 @@ export default function AllEntriesAuditPage() {
     }
   }
 
-  // Delete Entry
+  // Delete Entry (Moves to Recycle Bin)
   async function handleDelete(item) {
-    if (!confirm(`Delete ${item.sourceLabel} entry for "${item.party}" (৳ ${fmt(item.amount)})? This action cannot be undone.`)) {
+    if (!confirm(`Move ${item.sourceLabel} entry for "${item.party}" (৳ ${fmt(item.amount)}) to Recycle Bin?`)) {
       return;
     }
     setBusy(true);
@@ -1392,11 +1511,104 @@ export default function AllEntriesAuditPage() {
       if (!res.ok) {
         setErrMsg(data.error || "Failed to delete entry");
       } else {
-        setEntries((prev) => prev.filter((e) => e.uid !== item.uid));
-        setOkMsg("Entry deleted successfully.");
+        setOkMsg("Entry moved to Recycle Bin.");
+        await loadData();
       }
     } catch (err) {
       setErrMsg(err.message || "Network error deleting entry");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Restore Item from Recycle Bin
+  async function handleRestoreItem(item) {
+    if (!confirm(`Restore ${item.sourceLabel} entry for "${item.party}"?`)) return;
+    setBusy(true);
+    setErrMsg("");
+    setOkMsg("");
+    try {
+      const res = await fetch("/api/all-entries/recycle-bin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "restore",
+          source: item.source,
+          id: item.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to restore entry");
+      setOkMsg(`Restored ${item.sourceLabel} entry for "${item.party}" successfully!`);
+      await loadData();
+    } catch (err) {
+      setErrMsg(err.message || "Network error restoring entry");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Permanently Delete Item from Recycle Bin
+  async function handlePermanentDeleteItem(item) {
+    if (
+      !confirm(
+        `Are you sure you want to PERMANENTLY delete this ${item.sourceLabel} entry for "${item.party}" (৳ ${fmt(item.amount)})?\n\nThis action CANNOT be undone and will permanently remove this record from the database!`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setErrMsg("");
+    setOkMsg("");
+    try {
+      const res = await fetch("/api/all-entries/recycle-bin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "permanent_delete",
+          source: item.source,
+          id: item.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete permanently");
+      setOkMsg(`Permanently deleted ${item.sourceLabel} entry.`);
+      await loadData();
+    } catch (err) {
+      setErrMsg(err.message || "Network error deleting entry");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Empty Entire Recycle Bin
+  async function handleEmptyRecycleBin() {
+    if (recycleBin.length === 0) {
+      alert("Recycle bin is already empty.");
+      return;
+    }
+    if (
+      !confirm(
+        `Are you sure you want to EMPTY the Recycle Bin?\n\nAll ${recycleBin.length} deleted records across Sales, Purchase, and Expense will be PERMANENTLY REMOVED from the database and CANNOT be recovered!`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setErrMsg("");
+    setOkMsg("");
+    try {
+      const res = await fetch("/api/all-entries/recycle-bin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "empty" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to empty recycle bin");
+      setOkMsg("Recycle bin emptied successfully.");
+      await loadData();
+    } catch (err) {
+      setErrMsg(err.message || "Network error emptying recycle bin");
     } finally {
       setBusy(false);
     }
@@ -1629,6 +1841,29 @@ export default function AllEntriesAuditPage() {
               Expense
               <span className="ae-tab-badge">{metrics.moduleCounts.expense}</span>
             </button>
+            <button
+              type="button"
+              className={`ae-tab-btn ${moduleFilter === "recycle_bin" ? "active" : ""}`}
+              onClick={() => setModuleFilter("recycle_bin")}
+              style={
+                moduleFilter === "recycle_bin"
+                  ? { background: "#fee2e2", color: "#b91c1c", borderColor: "#fca5a5", fontWeight: 800 }
+                  : {}
+              }
+            >
+              <TrashIcon size={13} style={{ marginRight: 4, verticalAlign: "-2px" }} />
+              Recycle Bin
+              <span
+                className="ae-tab-badge"
+                style={
+                  moduleFilter === "recycle_bin"
+                    ? { background: "#ef4444", color: "#ffffff" }
+                    : { background: "#fecaca", color: "#991b1b" }
+                }
+              >
+                {metrics.moduleCounts.recycle_bin}
+              </span>
+            </button>
           </div>
 
           {/* Search Input */}
@@ -1648,32 +1883,34 @@ export default function AllEntriesAuditPage() {
 
         {/* Sub-Filters: Status & Date */}
         <div className="ae-sub-filters">
-          <div className="ae-pill-group">
-            <span className="ae-pill-label">Status:</span>
-            <button
-              type="button"
-              className={`ae-pill-btn ${statusFilter === "all" ? "active" : ""}`}
-              onClick={() => setStatusFilter("all")}
-            >
-              All
-            </button>
-            <button
-              type="button"
-              className={`ae-pill-btn ${statusFilter === "pending" ? "active" : ""}`}
-              onClick={() => setStatusFilter("pending")}
-              style={statusFilter === "pending" ? { background: "#f59e0b", borderColor: "#f59e0b" } : {}}
-            >
-              Pending ({metrics.pending})
-            </button>
-            <button
-              type="button"
-              className={`ae-pill-btn ${statusFilter === "approved" ? "active" : ""}`}
-              onClick={() => setStatusFilter("approved")}
-              style={statusFilter === "approved" ? { background: "#10b981", borderColor: "#10b981" } : {}}
-            >
-              Approved ({metrics.approved})
-            </button>
-          </div>
+          {moduleFilter !== "recycle_bin" && (
+            <div className="ae-pill-group">
+              <span className="ae-pill-label">Status:</span>
+              <button
+                type="button"
+                className={`ae-pill-btn ${statusFilter === "all" ? "active" : ""}`}
+                onClick={() => setStatusFilter("all")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`ae-pill-btn ${statusFilter === "pending" ? "active" : ""}`}
+                onClick={() => setStatusFilter("pending")}
+                style={statusFilter === "pending" ? { background: "#f59e0b", borderColor: "#f59e0b" } : {}}
+              >
+                Pending ({metrics.pending})
+              </button>
+              <button
+                type="button"
+                className={`ae-pill-btn ${statusFilter === "approved" ? "active" : ""}`}
+                onClick={() => setStatusFilter("approved")}
+                style={statusFilter === "approved" ? { background: "#10b981", borderColor: "#10b981" } : {}}
+              >
+                Approved ({metrics.approved})
+              </button>
+            </div>
+          )}
 
           <div className="ae-pill-group">
             <span className="ae-pill-label">Date:</span>
@@ -1737,28 +1974,73 @@ export default function AllEntriesAuditPage() {
 
       {/* Main Table Card */}
       <section className="be-card">
-        <div className="be-card-header">
-          <h2 className="be-card-title">
-            Entries List ({filteredEntries.length})
-          </h2>
-          <span style={{ fontSize: "0.82rem", color: "var(--be-text-muted)" }}>
-            Showing {filteredEntries.length} of {entries.length} records
-          </span>
+        <div className="be-card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+          <div>
+            <h2 className="be-card-title">
+              {moduleFilter === "recycle_bin"
+                ? `Recycle Bin (${filteredRecycleBin.length})`
+                : `Entries List (${filteredEntries.length})`}
+            </h2>
+            <span style={{ fontSize: "0.82rem", color: "var(--be-text-muted)" }}>
+              {moduleFilter === "recycle_bin"
+                ? `Showing ${filteredRecycleBin.length} of ${recycleBin.length} deleted items from Sales, Purchase & Expense`
+                : `Showing ${filteredEntries.length} of ${entries.length} records`}
+            </span>
+          </div>
+          {moduleFilter === "recycle_bin" && (
+            <button
+              type="button"
+              className="be-btn"
+              onClick={handleEmptyRecycleBin}
+              disabled={busy || recycleBin.length === 0}
+              style={{
+                background: "#dc2626",
+                color: "#ffffff",
+                borderColor: "#b91c1c",
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                padding: "6px 14px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                borderRadius: "8px",
+                cursor: busy || recycleBin.length === 0 ? "not-allowed" : "pointer",
+              }}
+              title="Permanently empty all items in the Recycle Bin"
+            >
+              <TrashIcon size={14} /> Empty Recycle Bin
+            </button>
+          )}
         </div>
 
         {loading ? (
           <div style={{ padding: 40, textAlign: "center", color: "var(--be-text-muted)" }}>
             Loading all entries...
           </div>
-        ) : filteredEntries.length === 0 ? (
+        ) : (moduleFilter === "recycle_bin" ? filteredRecycleBin.length === 0 : filteredEntries.length === 0) ? (
           <div style={{ padding: 40, textAlign: "center", color: "var(--be-text-muted)" }}>
-            No entries match the current filters.
+            {moduleFilter === "recycle_bin"
+              ? "Recycle bin is empty. No deleted records found."
+              : "No entries match the current filters."}
           </div>
         ) : (
           <div className="tablewrap">
             <table className="ae-ledger-table">
               <thead>
-                {moduleFilter === "dealer_supplier" ? (
+                {moduleFilter === "recycle_bin" ? (
+                  <tr>
+                    <th style={{ width: 45, textAlign: "center" }}>SL</th>
+                    <th style={{ width: 95 }}>Date</th>
+                    <th style={{ width: 105 }}>Module</th>
+                    <th style={{ width: 130 }}>Type</th>
+                    <th style={{ minWidth: 160 }}>Party / Particulars</th>
+                    <th style={{ width: 95 }}>Bill No.</th>
+                    <th style={{ width: 120, textAlign: "right" }}>Amount (৳)</th>
+                    <th style={{ width: 130, textAlign: "center" }}>Deleted By</th>
+                    <th style={{ width: 85, textAlign: "center" }}>Restore</th>
+                    <th style={{ width: 85, textAlign: "center" }}>Delete</th>
+                  </tr>
+                ) : moduleFilter === "dealer_supplier" ? (
                   <tr>
                     <th style={{ width: 95 }}>Date</th>
                     <th style={{ width: 115 }}>Bill No.</th>
@@ -1824,165 +2106,565 @@ export default function AllEntriesAuditPage() {
                 )}
               </thead>
               <tbody>
-                {filteredEntries.map((item, idx) => {
-                  const isApproved = (item.status || "pending") === "approved";
-                  const isSelected = selectedUids.has(item.uid);
-
-                  if (moduleFilter === "customer_bill") {
-                    const balInfo = customerBalanceMap.get(item.id) || {};
-                    const totalBill = Number(item.totalBill || 0);
-                    const payment = Number(item.payment || 0);
-                    const dueThisBill = balInfo.dueThisBill !== undefined ? balInfo.dueThisBill : Math.max(0, totalBill - payment);
-                    const advanceThisBill = balInfo.advanceThisBill !== undefined ? balInfo.advanceThisBill : Math.max(0, payment - totalBill);
-                    const dueReceived = Number(balInfo.dueReceived || 0);
-                    const invoicePayment = Math.max(0, payment - dueReceived - advanceThisBill);
-                    const rBal = balInfo.runningBalance !== undefined ? balInfo.runningBalance : (item.due || 0);
-                    const prev = balInfo.prevBalance || 0;
-
-                    return (
-                      <tr
-                        key={item.uid}
-                        onClick={() => setSelectedCustomerBillForModal(item)}
-                        className="be-row-interactive"
-                        style={{ cursor: "pointer" }}
-                        title="Click to view full order details & edit/delete"
-                      >
-                        <td style={{ textAlign: "center", color: "var(--be-text-muted)", fontSize: "0.8rem", padding: "7px 4px" }}>
-                          {idx + 1}
-                        </td>
-                        <td style={{ whiteSpace: "nowrap", color: "#475569", fontSize: "0.78rem", padding: "7px 5px" }}>
-                          {item.date || "—"}
-                        </td>
-                        <td style={{ fontWeight: 700, color: "#1e293b", whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
-                          {item.billNo && item.billNo !== "—" ? `#${item.billNo}` : "—"}
-                        </td>
-                        <td style={{ padding: "7px 6px" }}>
-                          <div style={{ fontWeight: 700, color: "#0f172a", fontSize: "0.84rem" }}>
-                            {item.customerName || item.party || "—"}
+                {moduleFilter === "recycle_bin" ? (
+                  filteredRecycleBin.map((item, idx) => (
+                    <tr
+                      key={item.uid}
+                      style={{ cursor: "default" }}
+                    >
+                      <td style={{ textAlign: "center", color: "var(--be-text-muted)", fontSize: "0.82rem" }}>
+                        {idx + 1}
+                      </td>
+                      <td style={{ whiteSpace: "nowrap", fontSize: "0.82rem" }}>
+                        {prettyDate(item.date)}
+                      </td>
+                      <td>
+                        <span
+                          className="ae-tag-source"
+                          style={{
+                            background:
+                              item.source === "customer_bill"
+                                ? "#eff6ff"
+                                : item.source === "dealer_supplier"
+                                  ? "#ecfdf5"
+                                  : "#fef3c7",
+                            color:
+                              item.source === "customer_bill"
+                                ? "#1d4ed8"
+                                : item.source === "dealer_supplier"
+                                  ? "#047857"
+                                  : "#b45309",
+                            border: "1px solid currentColor",
+                            fontSize: "0.72rem",
+                            fontWeight: 700,
+                            padding: "2px 8px",
+                            borderRadius: "6px",
+                            display: "inline-block",
+                          }}
+                        >
+                          {item.sourceLabel}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: "0.82rem", fontWeight: 600, color: "#334155" }}>
+                        {item.subType || "—"}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 700, color: "#0f172a" }}>{item.party || "—"}</div>
+                        {item.customerMobile && (
+                          <div style={{ fontSize: "0.74rem", color: "var(--be-text-muted)" }}>
+                            {item.customerMobile}
                           </div>
-                          {item.customerAddress && (
-                            <div style={{ fontSize: "0.7rem", color: "var(--be-text-muted)", lineHeight: 1.2, marginTop: "1px" }}>
-                              {item.customerAddress}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ padding: "7px 5px" }}>
-                          <div style={{ fontFamily: "monospace", fontSize: "0.76rem", fontWeight: 700, color: "#2563eb", whiteSpace: "nowrap" }}>
-                            {item.customerId || "—"}
+                        )}
+                        {item.note && (
+                          <div style={{ fontSize: "0.72rem", color: "#64748b", fontStyle: "italic", marginTop: "2px" }}>
+                            {item.note}
                           </div>
-                          {item.customerMobile && (
-                            <div style={{ fontSize: "0.72rem", color: "var(--be-text-muted)", whiteSpace: "nowrap" }}>
-                              {item.customerMobile}
+                        )}
+                      </td>
+                      <td style={{ fontFamily: "monospace", fontSize: "0.82rem", fontWeight: 700, color: "#475569" }}>
+                        {item.billNo || "—"}
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" }}>
+                        ৳ {fmt(item.amount)}
+                      </td>
+                      <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                        <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#dc2626" }}>
+                          {item.deletedBy || "Admin"}
+                        </div>
+                        {item.deletedAt && item.deletedAt !== "—" && (
+                          <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>
+                            {item.deletedAt}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreItem(item)}
+                          className="be-btn-ghost"
+                          style={{
+                            fontSize: "0.76rem",
+                            fontWeight: 700,
+                            color: "#059669",
+                            background: "#ecfdf5",
+                            border: "1px solid #a7f3d0",
+                            padding: "4px 8px",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                          title="Restore this record back to active entries"
+                        >
+                          <RefreshIcon size={12} /> Restore
+                        </button>
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => handlePermanentDeleteItem(item)}
+                          className="be-btn-ghost"
+                          style={{
+                            fontSize: "0.76rem",
+                            fontWeight: 700,
+                            color: "#dc2626",
+                            background: "#fee2e2",
+                            border: "1px solid #fca5a5",
+                            padding: "4px 8px",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                          title="Permanently delete from database"
+                        >
+                          <TrashIcon size={12} /> Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  filteredEntries.map((item, idx) => {
+                    const isApproved = (item.status || "pending") === "approved";
+                    const isSelected = selectedUids.has(item.uid);
+
+                    if (moduleFilter === "customer_bill") {
+                      const balInfo = customerBalanceMap.get(item.id) || {};
+                      const totalBill = Number(item.totalBill || 0);
+                      const payment = Number(item.payment || 0);
+                      const dueThisBill = balInfo.dueThisBill !== undefined ? balInfo.dueThisBill : Math.max(0, totalBill - payment);
+                      const advanceThisBill = balInfo.advanceThisBill !== undefined ? balInfo.advanceThisBill : Math.max(0, payment - totalBill);
+                      const dueReceived = Number(balInfo.dueReceived || 0);
+                      const invoicePayment = Math.max(0, payment - dueReceived - advanceThisBill);
+                      const rBal = balInfo.runningBalance !== undefined ? balInfo.runningBalance : (item.due || 0);
+                      const prev = balInfo.prevBalance || 0;
+
+                      return (
+                        <tr
+                          key={item.uid}
+                          onClick={() => setSelectedCustomerBillForModal(item)}
+                          className="be-row-interactive"
+                          style={{ cursor: "pointer" }}
+                          title="Click to view full order details & edit/delete"
+                        >
+                          <td style={{ textAlign: "center", color: "var(--be-text-muted)", fontSize: "0.8rem", padding: "7px 4px" }}>
+                            {idx + 1}
+                          </td>
+                          <td style={{ whiteSpace: "nowrap", color: "#475569", fontSize: "0.78rem", padding: "7px 5px" }}>
+                            {item.date || "—"}
+                          </td>
+                          <td style={{ fontWeight: 700, color: "#1e293b", whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
+                            {item.billNo && item.billNo !== "—" ? `#${item.billNo}` : "—"}
+                          </td>
+                          <td style={{ padding: "7px 6px" }}>
+                            <div style={{ fontWeight: 700, color: "#0f172a", fontSize: "0.84rem" }}>
+                              {item.customerName || item.party || "—"}
                             </div>
-                          )}
-                        </td>
-                        <td style={{ textAlign: "right", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
-                          ৳ {fmt(totalBill)}
-                        </td>
-                        <td style={{ textAlign: "right", color: invoicePayment > 0 ? "#059669" : "var(--be-text-muted)", fontWeight: 700, whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
-                          {invoicePayment > 0 ? `৳ ${fmt(invoicePayment)}` : "—"}
-                        </td>
-                        <td style={{ textAlign: "right", fontWeight: 700, color: dueThisBill > 0 ? "#dc2626" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
-                          {dueThisBill > 0 ? `৳ ${fmt(dueThisBill)}` : "—"}
-                        </td>
-                        <td style={{ textAlign: "right", fontWeight: 700, color: advanceThisBill > 0 ? "#059669" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
-                          {advanceThisBill > 0 ? `৳ ${fmt(advanceThisBill)}` : "—"}
-                        </td>
-                        <td style={{ textAlign: "right", fontWeight: 700, color: dueReceived > 0 ? "#2563eb" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
-                          {dueReceived > 0 ? `৳ ${fmt(dueReceived)}` : "—"}
-                        </td>
-                        <td style={{ textAlign: "right", verticalAlign: "middle", whiteSpace: "nowrap", padding: "7px 5px" }}>
-                          <div>
-                            <div
-                              style={{
-                                fontWeight: 800,
-                                fontSize: "0.82rem",
-                                color: rBal > 0 ? "#dc2626" : rBal < 0 ? "#059669" : "var(--be-text-muted)",
-                              }}
-                            >
-                              {rBal > 0
-                                ? `Due: ৳ ${fmt(rBal)}`
-                                : rBal < 0
-                                ? `Adv: ৳ ${fmt(Math.abs(rBal))}`
-                                : "Fully Settled"}
-                            </div>
-                            {prev !== 0 && (
-                              <div
-                                style={{
-                                  fontSize: "0.66rem",
-                                  color: "#64748b",
-                                  marginTop: "1px",
-                                  lineHeight: 1.15,
-                                }}
-                                title={`Previous Balance: ${prev > 0 ? `Due ৳ ${fmt(prev)}` : `Adv ৳ ${fmt(Math.abs(prev))}`}`}
-                              >
-                                <span>
-                                  Prev:{" "}
-                                  <strong style={{ color: prev > 0 ? "#b91c1c" : "#047857" }}>
-                                    {prev > 0 ? `Due ${fmt(prev)}` : `Adv ${fmt(Math.abs(prev))}`}
-                                  </strong>
-                                </span>
+                            {item.customerAddress && (
+                              <div style={{ fontSize: "0.7rem", color: "var(--be-text-muted)", lineHeight: 1.2, marginTop: "1px" }}>
+                                {item.customerAddress}
                               </div>
                             )}
-                          </div>
-                        </td>
-                        <td style={{ textAlign: "center", padding: "7px 4px" }} onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            className={`ae-status-btn ${isApproved ? "approved" : "pending"}`}
-                            onClick={() => handleToggleStatus(item)}
-                            disabled={busy}
-                            style={{ fontSize: "0.72rem", padding: "3px 8px" }}
-                            title={
-                              isApproved
-                                ? `Approved by: ${item.approvedBy || "Admin"}${item.approvedAt ? ` on ${item.approvedAt}` : ""}. Click to change to Pending.`
-                                : "Pending Approval. Click to Approve now."
-                            }
-                          >
-                            {isApproved ? (
-                              <>
-                                <CheckIcon size={11} /> Approved
-                              </>
-                            ) : (
-                              <>
-                                <ClockIcon size={11} /> Pending
-                              </>
+                          </td>
+                          <td style={{ padding: "7px 5px" }}>
+                            <div style={{ fontFamily: "monospace", fontSize: "0.76rem", fontWeight: 700, color: "#2563eb", whiteSpace: "nowrap" }}>
+                              {item.customerId || "—"}
+                            </div>
+                            {item.customerMobile && (
+                              <div style={{ fontSize: "0.72rem", color: "var(--be-text-muted)", whiteSpace: "nowrap" }}>
+                                {item.customerMobile}
+                              </div>
                             )}
-                          </button>
-                        </td>
-                        <td style={{ textAlign: "center", whiteSpace: "nowrap", padding: "7px 4px" }}>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 7px",
-                              borderRadius: "5px",
-                              fontSize: "0.74rem",
-                              fontWeight: 700,
-                              background: "#f1f5f9",
-                              color: "#334155",
-                              border: "1px solid #e2e8f0",
-                            }}
+                          </td>
+                          <td style={{ textAlign: "right", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
+                            ৳ {fmt(totalBill)}
+                          </td>
+                          <td style={{ textAlign: "right", color: invoicePayment >= 0.005 ? "#059669" : "var(--be-text-muted)", fontWeight: 700, whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
+                            {invoicePayment >= 0.005 ? `৳ ${fmt(invoicePayment)}` : "—"}
+                          </td>
+                          <td style={{ textAlign: "right", fontWeight: 700, color: dueThisBill >= 0.005 ? "#dc2626" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
+                            {dueThisBill >= 0.005 ? `৳ ${fmt(dueThisBill)}` : "—"}
+                          </td>
+                          <td style={{ textAlign: "right", fontWeight: 700, color: advanceThisBill >= 0.005 ? "#059669" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
+                            {advanceThisBill >= 0.005 ? `৳ ${fmt(advanceThisBill)}` : "—"}
+                          </td>
+                          <td style={{ textAlign: "right", fontWeight: 700, color: dueReceived >= 0.005 ? "#2563eb" : "var(--be-text-muted)", whiteSpace: "nowrap", padding: "7px 5px", fontSize: "0.8rem" }}>
+                            {dueReceived >= 0.005 ? `৳ ${fmt(dueReceived)}` : "—"}
+                          </td>
+                          <td style={{ textAlign: "right", verticalAlign: "middle", whiteSpace: "nowrap", padding: "7px 5px" }}>
+                            <div>
+                              <div
+                                style={{
+                                  fontWeight: 800,
+                                  fontSize: "0.82rem",
+                                  color: rBal >= 0.005 ? "#dc2626" : rBal <= -0.005 ? "#059669" : "var(--be-text-muted)",
+                                }}
+                              >
+                                {rBal >= 0.005
+                                  ? `Due: ৳ ${fmt(rBal)}`
+                                  : rBal <= -0.005
+                                    ? `Adv: ৳ ${fmt(Math.abs(rBal))}`
+                                    : "Fully Settled"}
+                              </div>
+                              {Math.abs(prev) >= 0.005 && (
+                                <div
+                                  style={{
+                                    fontSize: "0.66rem",
+                                    color: "#64748b",
+                                    marginTop: "1px",
+                                    lineHeight: 1.15,
+                                  }}
+                                  title={`Previous Balance: ${prev >= 0.005 ? `Due ৳ ${fmt(prev)}` : `Adv ৳ ${fmt(Math.abs(prev))}`}`}
+                                >
+                                  <span>
+                                    Prev:{" "}
+                                    <strong style={{ color: prev >= 0.005 ? "#b91c1c" : "#047857" }}>
+                                      {prev >= 0.005 ? `Due ${fmt(prev)}` : `Adv ${fmt(Math.abs(prev))}`}
+                                    </strong>
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: "center", padding: "7px 4px" }} onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className={`ae-status-btn ${isApproved ? "approved" : "pending"}`}
+                              onClick={() => handleToggleStatus(item)}
+                              disabled={busy}
+                              style={{ fontSize: "0.72rem", padding: "3px 8px" }}
+                              title={
+                                isApproved
+                                  ? `Approved by: ${item.approvedBy || "Admin"}${item.approvedAt ? ` on ${item.approvedAt}` : ""}. Click to change to Pending.`
+                                  : "Pending Approval. Click to Approve now."
+                              }
+                            >
+                              {isApproved ? (
+                                <>
+                                  <CheckIcon size={11} /> Approved
+                                </>
+                              ) : (
+                                <>
+                                  <ClockIcon size={11} /> Pending
+                                </>
+                              )}
+                            </button>
+                          </td>
+                          <td style={{ textAlign: "center", whiteSpace: "nowrap", padding: "7px 4px" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 7px",
+                                borderRadius: "5px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: "#f1f5f9",
+                                color: "#334155",
+                                border: "1px solid #e2e8f0",
+                              }}
+                            >
+                              {item.entryBy || item.approvedBy || "Admin"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    if (moduleFilter === "dealer_supplier") {
+                      const isBill = item.type === "bill" || (!item.type && item.subType === "Bill") || (item.source === "dealer_supplier" && item.flow === "none");
+                      const hasItems = isBill && Array.isArray(item.items) && item.items.length > 0;
+                      const items = hasItems ? item.items : null;
+                      const itemsCount = items ? items.length : 1;
+                      const isLastRow = idx === filteredEntries.length - 1;
+                      const rowBorderBottom = isLastRow ? "none" : "2px solid #cbd5e1";
+                      const billBg = idx % 2 === 0 ? "#ffffff" : "#f8fafc";
+                      const balInfo = dealerSupplierBalanceMap.get(item.uid) || dealerSupplierBalanceMap.get(item.id) || {};
+                      const rBal = balInfo.runningBalance !== undefined ? balInfo.runningBalance : Number(item.amount || 0);
+
+                      if (!isBill) {
+                        // PAYMENT ENTRY ROW
+                        return (
+                          <tr
+                            key={item.uid}
+                            className="ae-ledger-row"
+                            onClick={() => setSelectedPurchaseEntryForModal(item)}
+                            title="Click to view full details, edit, or delete"
+                            style={{ background: billBg, borderBottom: rowBorderBottom, cursor: "pointer" }}
                           >
-                            {item.entryBy || item.approvedBy || "Admin"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  }
+                            <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>
+                              {item.date}
+                            </td>
+                            <td style={{ verticalAlign: "top", fontWeight: 700, color: "#1e293b" }}>
+                              <div>{item.billNo && item.billNo !== "—" ? `Bill #${item.billNo}` : "—"}</div>
+                              {item.party && (
+                                <div className="ae-party-pill">
+                                  <span>{item.party}</span>
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ verticalAlign: "top" }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                <span style={{ fontWeight: 700, color: "#065f46" }}>Payment</span>
+                                {item.note && <span style={{ fontSize: "0.75rem", fontStyle: "italic", color: "#64748b" }}>{item.note}</span>}
+                              </div>
+                            </td>
+                            <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
+                            <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
+                            <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
+                            <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
+                            <td style={{ verticalAlign: "top" }}>
+                              {item.fromBank || item.toBank ? (
+                                <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#0f172a", background: "#f1f5f9", padding: "2px 7px", borderRadius: 4, display: "inline-block" }}>
+                                  {item.fromBank && item.toBank ? `${item.fromBank} → ${item.toBank}` : item.fromBank || item.toBank}
+                                </span>
+                              ) : item.method && item.method !== "Payment" && item.method !== "Bill" ? (
+                                <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#0f172a", background: "#f1f5f9", padding: "2px 7px", borderRadius: 4, display: "inline-block" }}>
+                                  {item.method}
+                                </span>
+                              ) : (
+                                <span style={{ color: "#94a3b8" }}>Cash / Direct</span>
+                              )}
+                            </td>
+                            <td className="num" style={{ verticalAlign: "top", fontWeight: 700, color: "#059669", whiteSpace: "nowrap" }}>
+                              − ৳ {fmt(item.amount)}
+                            </td>
+                            <td className="num" style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>
+                              <b style={{ color: rBal >= 0 ? "#dc2626" : "#059669" }}>
+                                ৳ {fmt(rBal)}
+                              </b>
+                            </td>
+                            <td style={{ textAlign: "center", verticalAlign: "top" }} onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                className={`ae-status-btn ${isApproved ? "approved" : "pending"}`}
+                                onClick={() => handleToggleStatus(item)}
+                                disabled={busy}
+                                style={{ fontSize: "0.72rem", padding: "3px 8px" }}
+                                title={
+                                  isApproved
+                                    ? `Approved by: ${item.approvedBy || "Admin"}${item.approvedAt ? ` on ${item.approvedAt}` : ""}. Click to change to Pending.`
+                                    : "Pending Approval. Click to Approve now."
+                                }
+                              >
+                                {isApproved ? (
+                                  <>
+                                    <CheckIcon size={11} /> Approved
+                                  </>
+                                ) : (
+                                  <>
+                                    <ClockIcon size={11} /> Pending
+                                  </>
+                                )}
+                              </button>
+                            </td>
+                            <td style={{ textAlign: "center", verticalAlign: "top", whiteSpace: "nowrap" }}>
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  padding: "2px 7px",
+                                  borderRadius: "5px",
+                                  fontSize: "0.74rem",
+                                  fontWeight: 700,
+                                  background: "#f1f5f9",
+                                  color: "#334155",
+                                  border: "1px solid #e2e8f0",
+                                }}
+                              >
+                                {item.entryBy || item.approvedBy || "Admin"}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      }
 
-                  if (moduleFilter === "dealer_supplier") {
-                    const isBill = item.type === "bill" || (!item.type && item.subType === "Bill") || (item.source === "dealer_supplier" && item.flow === "none");
-                    const hasItems = isBill && Array.isArray(item.items) && item.items.length > 0;
-                    const items = hasItems ? item.items : null;
-                    const itemsCount = items ? items.length : 1;
-                    const isLastRow = idx === filteredEntries.length - 1;
-                    const rowBorderBottom = isLastRow ? "none" : "2px solid #cbd5e1";
-                    const billBg = idx % 2 === 0 ? "#ffffff" : "#f8fafc";
-                    const balInfo = dealerSupplierBalanceMap.get(item.uid) || dealerSupplierBalanceMap.get(item.id) || {};
-                    const rBal = balInfo.runningBalance !== undefined ? balInfo.runningBalance : Number(item.amount || 0);
+                      if (items) {
+                        return items.map((it, itemIdx) => {
+                          const isFirstItem = itemIdx === 0;
+                          const isLastItemOfBill = itemIdx === items.length - 1;
+                          const itemBorderBottom = isLastItemOfBill ? rowBorderBottom : "1px dashed #e2e8f0";
 
-                    if (!isBill) {
-                      // PAYMENT ENTRY ROW
+                          return (
+                            <tr
+                              key={`${item.uid}-${itemIdx}`}
+                              className="ae-ledger-row"
+                              onClick={() => setSelectedPurchaseEntryForModal(item)}
+                              title="Click to view full details, edit, or delete"
+                              style={{ background: billBg, cursor: "pointer" }}
+                            >
+                              {isFirstItem && (
+                                <td
+                                  rowSpan={itemsCount}
+                                  style={{
+                                    verticalAlign: "top",
+                                    whiteSpace: "nowrap",
+                                    borderBottom: rowBorderBottom,
+                                  }}
+                                >
+                                  {item.date}
+                                </td>
+                              )}
+                              {isFirstItem && (
+                                <td
+                                  rowSpan={itemsCount}
+                                  style={{
+                                    verticalAlign: "top",
+                                    fontWeight: 700,
+                                    color: "#0f172a",
+                                    whiteSpace: "nowrap",
+                                    borderBottom: rowBorderBottom,
+                                  }}
+                                >
+                                  <div>{item.billNo && item.billNo !== "—" ? `Bill #${item.billNo}` : "—"}</div>
+                                  {item.party && (
+                                    <div className="ae-party-pill">
+                                      <span>{item.party}</span>
+                                    </div>
+                                  )}
+                                </td>
+                              )}
+                              <td style={{ verticalAlign: "top", fontWeight: 600, borderBottom: itemBorderBottom }}>
+                                {it.name || "Item"}
+                              </td>
+                              <td className="num" style={{ verticalAlign: "top", borderBottom: itemBorderBottom }}>
+                                {it.quantity !== undefined && it.quantity !== ""
+                                  ? `${fmt(it.quantity)} ${it.unit || "pcs"}`
+                                  : (it.weight != null && it.weight !== "" ? `${fmt(it.weight)} kg` : "—")}
+                              </td>
+                              <td className="num" style={{ verticalAlign: "top", borderBottom: itemBorderBottom }}>
+                                {it.rate != null && it.rate !== "" ? `৳ ${fmt(it.rate)}` : "—"}
+                              </td>
+                              <td className="num" style={{ verticalAlign: "top", fontWeight: 700, borderBottom: itemBorderBottom }}>
+                                {it.subtotal != null && it.subtotal !== "" ? `৳ ${fmt(it.subtotal)}` : "—"}
+                              </td>
+                              {isFirstItem && (
+                                <td
+                                  rowSpan={itemsCount}
+                                  className="num"
+                                  style={{
+                                    verticalAlign: "top",
+                                    fontWeight: 800,
+                                    color: "#0f172a",
+                                    borderBottom: rowBorderBottom,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  <div>+ ৳ {fmt(item.amount)}</div>
+                                  {((item.labour_cost || item.labourCost) > 0 || (item.transport_cost || item.transportCost) > 0) && (
+                                    <div style={{ fontSize: "0.7rem", color: "#64748b", marginTop: 2, fontWeight: 500, lineHeight: 1.25 }}>
+                                      {(item.labour_cost || item.labourCost) > 0 && <div>+ Lab: ৳{fmt(item.labour_cost || item.labourCost)}</div>}
+                                      {(item.transport_cost || item.transportCost) > 0 && <div>+ Tr: ৳{fmt(item.transport_cost || item.transportCost)}</div>}
+                                    </div>
+                                  )}
+                                </td>
+                              )}
+                              {isFirstItem && (
+                                <td
+                                  rowSpan={itemsCount}
+                                  style={{
+                                    verticalAlign: "top",
+                                    color: "#94a3b8",
+                                    borderBottom: rowBorderBottom,
+                                  }}
+                                >
+                                  —
+                                </td>
+                              )}
+                              {isFirstItem && (
+                                <td
+                                  rowSpan={itemsCount}
+                                  className="num"
+                                  style={{
+                                    verticalAlign: "top",
+                                    color: "#94a3b8",
+                                    borderBottom: rowBorderBottom,
+                                  }}
+                                >
+                                  —
+                                </td>
+                              )}
+                              {isFirstItem && (
+                                <td
+                                  rowSpan={itemsCount}
+                                  className="num"
+                                  style={{
+                                    verticalAlign: "top",
+                                    borderBottom: rowBorderBottom,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  <b style={{ color: rBal >= 0 ? "#dc2626" : "#059669" }}>
+                                    ৳ {fmt(rBal)}
+                                  </b>
+                                </td>
+                              )}
+                              {isFirstItem && (
+                                <td
+                                  rowSpan={itemsCount}
+                                  style={{
+                                    textAlign: "center",
+                                    verticalAlign: "top",
+                                    borderBottom: rowBorderBottom,
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button
+                                    type="button"
+                                    className={`ae-status-btn ${isApproved ? "approved" : "pending"}`}
+                                    onClick={() => handleToggleStatus(item)}
+                                    disabled={busy}
+                                    style={{ fontSize: "0.72rem", padding: "3px 8px" }}
+                                    title={
+                                      isApproved
+                                        ? `Approved by: ${item.approvedBy || "Admin"}${item.approvedAt ? ` on ${item.approvedAt}` : ""}. Click to change to Pending.`
+                                        : "Pending Approval. Click to Approve now."
+                                    }
+                                  >
+                                    {isApproved ? (
+                                      <>
+                                        <CheckIcon size={11} /> Approved
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ClockIcon size={11} /> Pending
+                                      </>
+                                    )}
+                                  </button>
+                                </td>
+                              )}
+                              {isFirstItem && (
+                                <td
+                                  rowSpan={itemsCount}
+                                  style={{
+                                    textAlign: "center",
+                                    verticalAlign: "top",
+                                    whiteSpace: "nowrap",
+                                    borderBottom: rowBorderBottom,
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      display: "inline-block",
+                                      padding: "2px 7px",
+                                      borderRadius: "5px",
+                                      fontSize: "0.74rem",
+                                      fontWeight: 700,
+                                      background: "#f1f5f9",
+                                      color: "#334155",
+                                      border: "1px solid #e2e8f0",
+                                    }}
+                                  >
+                                    {item.entryBy || item.approvedBy || "Admin"}
+                                  </span>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        });
+                      }
+
+                      // BILL WITHOUT ITEMS
                       return (
                         <tr
                           key={item.uid}
@@ -1994,7 +2676,7 @@ export default function AllEntriesAuditPage() {
                           <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>
                             {item.date}
                           </td>
-                          <td style={{ verticalAlign: "top", fontWeight: 700, color: "#1e293b" }}>
+                          <td style={{ verticalAlign: "top", fontWeight: 700, color: "#0f172a" }}>
                             <div>{item.billNo && item.billNo !== "—" ? `Bill #${item.billNo}` : "—"}</div>
                             {item.party && (
                               <div className="ae-party-pill">
@@ -2002,32 +2684,17 @@ export default function AllEntriesAuditPage() {
                               </div>
                             )}
                           </td>
-                          <td style={{ verticalAlign: "top" }}>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                              <span style={{ fontWeight: 700, color: "#065f46" }}>Payment</span>
-                              {item.note && <span style={{ fontSize: "0.75rem", fontStyle: "italic", color: "#64748b" }}>{item.note}</span>}
-                            </div>
+                          <td style={{ verticalAlign: "top", fontWeight: 600 }}>
+                            {item.note || "General Bill"}
+                          </td>
+                          <td className="num" style={{ verticalAlign: "top" }}>
+                            {item.weight != null ? `${fmt(item.weight)} kg` : "—"}
                           </td>
                           <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
+                          <td className="num" style={{ verticalAlign: "top", fontWeight: 700 }}>৳ {fmt(item.amount)}</td>
+                          <td className="num" style={{ verticalAlign: "top", fontWeight: 800, whiteSpace: "nowrap" }}>+ ৳ {fmt(item.amount)}</td>
+                          <td style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
                           <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
-                          <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
-                          <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
-                          <td style={{ verticalAlign: "top" }}>
-                            {item.fromBank || item.toBank ? (
-                              <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#0f172a", background: "#f1f5f9", padding: "2px 7px", borderRadius: 4, display: "inline-block" }}>
-                                {item.fromBank && item.toBank ? `${item.fromBank} → ${item.toBank}` : item.fromBank || item.toBank}
-                              </span>
-                            ) : item.method && item.method !== "Payment" && item.method !== "Bill" ? (
-                              <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#0f172a", background: "#f1f5f9", padding: "2px 7px", borderRadius: 4, display: "inline-block" }}>
-                                {item.method}
-                              </span>
-                            ) : (
-                              <span style={{ color: "#94a3b8" }}>Cash / Direct</span>
-                            )}
-                          </td>
-                          <td className="num" style={{ verticalAlign: "top", fontWeight: 700, color: "#059669", whiteSpace: "nowrap" }}>
-                            − ৳ {fmt(item.amount)}
-                          </td>
                           <td className="num" style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>
                             <b style={{ color: rBal >= 0 ? "#dc2626" : "#059669" }}>
                               ৳ {fmt(rBal)}
@@ -2077,533 +2744,269 @@ export default function AllEntriesAuditPage() {
                       );
                     }
 
-                    if (items) {
-                      return items.map((it, itemIdx) => {
-                        const isFirstItem = itemIdx === 0;
-                        const isLastItemOfBill = itemIdx === items.length - 1;
-                        const itemBorderBottom = isLastItemOfBill ? rowBorderBottom : "1px dashed #e2e8f0";
+                    if (moduleFilter === "expense") {
+                      const isBank = item.method === "Bank" || item.payment_method === "Bank";
+                      const hasBankPair = Boolean((item.fromBank || item.from_bank) && (item.toBank || item.to_bank));
+                      const isDep = isDepositCategory(item.category || item.subType);
+                      const rowBg = isDep ? "rgba(240, 253, 244, 0.45)" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc");
 
-                        return (
-                          <tr
-                            key={`${item.uid}-${itemIdx}`}
-                            className="ae-ledger-row"
-                            onClick={() => setSelectedPurchaseEntryForModal(item)}
-                            title="Click to view full details, edit, or delete"
-                            style={{ background: billBg, cursor: "pointer" }}
-                          >
-                            {isFirstItem && (
-                              <td
-                                rowSpan={itemsCount}
-                                style={{
-                                  verticalAlign: "top",
-                                  whiteSpace: "nowrap",
-                                  borderBottom: rowBorderBottom,
-                                }}
-                              >
-                                {item.date}
-                              </td>
-                            )}
-                            {isFirstItem && (
-                              <td
-                                rowSpan={itemsCount}
-                                style={{
-                                  verticalAlign: "top",
-                                  fontWeight: 700,
-                                  color: "#0f172a",
-                                  whiteSpace: "nowrap",
-                                  borderBottom: rowBorderBottom,
-                                }}
-                              >
-                                <div>{item.billNo && item.billNo !== "—" ? `Bill #${item.billNo}` : "—"}</div>
-                                {item.party && (
-                                  <div className="ae-party-pill">
-                                    <span>{item.party}</span>
-                                  </div>
-                                )}
-                              </td>
-                            )}
-                            <td style={{ verticalAlign: "top", fontWeight: 600, borderBottom: itemBorderBottom }}>
-                              {it.name || "Item"}
-                            </td>
-                            <td className="num" style={{ verticalAlign: "top", borderBottom: itemBorderBottom }}>
-                              {it.quantity !== undefined && it.quantity !== ""
-                                ? `${fmt(it.quantity)} ${it.unit || "pcs"}`
-                                : (it.weight != null && it.weight !== "" ? `${fmt(it.weight)} kg` : "—")}
-                            </td>
-                            <td className="num" style={{ verticalAlign: "top", borderBottom: itemBorderBottom }}>
-                              {it.rate != null && it.rate !== "" ? `৳ ${fmt(it.rate)}` : "—"}
-                            </td>
-                            <td className="num" style={{ verticalAlign: "top", fontWeight: 700, borderBottom: itemBorderBottom }}>
-                              {it.subtotal != null && it.subtotal !== "" ? `৳ ${fmt(it.subtotal)}` : "—"}
-                            </td>
-                            {isFirstItem && (
-                              <td
-                                rowSpan={itemsCount}
-                                className="num"
-                                style={{
-                                  verticalAlign: "top",
-                                  fontWeight: 800,
-                                  color: "#0f172a",
-                                  borderBottom: rowBorderBottom,
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                <div>+ ৳ {fmt(item.amount)}</div>
-                                {((item.labour_cost || item.labourCost) > 0 || (item.transport_cost || item.transportCost) > 0) && (
-                                  <div style={{ fontSize: "0.7rem", color: "#64748b", marginTop: 2, fontWeight: 500, lineHeight: 1.25 }}>
-                                    {(item.labour_cost || item.labourCost) > 0 && <div>+ Lab: ৳{fmt(item.labour_cost || item.labourCost)}</div>}
-                                    {(item.transport_cost || item.transportCost) > 0 && <div>+ Tr: ৳{fmt(item.transport_cost || item.transportCost)}</div>}
-                                  </div>
-                                )}
-                              </td>
-                            )}
-                            {isFirstItem && (
-                              <td
-                                rowSpan={itemsCount}
-                                style={{
-                                  verticalAlign: "top",
-                                  color: "#94a3b8",
-                                  borderBottom: rowBorderBottom,
-                                }}
-                              >
-                                —
-                              </td>
-                            )}
-                            {isFirstItem && (
-                              <td
-                                rowSpan={itemsCount}
-                                className="num"
-                                style={{
-                                  verticalAlign: "top",
-                                  color: "#94a3b8",
-                                  borderBottom: rowBorderBottom,
-                                }}
-                              >
-                                —
-                              </td>
-                            )}
-                            {isFirstItem && (
-                              <td
-                                rowSpan={itemsCount}
-                                className="num"
-                                style={{
-                                  verticalAlign: "top",
-                                  borderBottom: rowBorderBottom,
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                <b style={{ color: rBal >= 0 ? "#dc2626" : "#059669" }}>
-                                  ৳ {fmt(rBal)}
-                                </b>
-                              </td>
-                            )}
-                            {isFirstItem && (
-                              <td
-                                rowSpan={itemsCount}
-                                style={{
-                                  textAlign: "center",
-                                  verticalAlign: "top",
-                                  borderBottom: rowBorderBottom,
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <button
-                                  type="button"
-                                  className={`ae-status-btn ${isApproved ? "approved" : "pending"}`}
-                                  onClick={() => handleToggleStatus(item)}
-                                  disabled={busy}
-                                  style={{ fontSize: "0.72rem", padding: "3px 8px" }}
-                                  title={
-                                    isApproved
-                                      ? `Approved by: ${item.approvedBy || "Admin"}${item.approvedAt ? ` on ${item.approvedAt}` : ""}. Click to change to Pending.`
-                                      : "Pending Approval. Click to Approve now."
-                                  }
-                                >
-                                  {isApproved ? (
-                                    <>
-                                      <CheckIcon size={11} /> Approved
-                                    </>
-                                  ) : (
-                                    <>
-                                      <ClockIcon size={11} /> Pending
-                                    </>
-                                  )}
-                                </button>
-                              </td>
-                            )}
-                            {isFirstItem && (
-                              <td
-                                rowSpan={itemsCount}
-                                style={{
-                                  textAlign: "center",
-                                  verticalAlign: "top",
-                                  whiteSpace: "nowrap",
-                                  borderBottom: rowBorderBottom,
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    display: "inline-block",
-                                    padding: "2px 7px",
-                                    borderRadius: "5px",
-                                    fontSize: "0.74rem",
-                                    fontWeight: 700,
-                                    background: "#f1f5f9",
-                                    color: "#334155",
-                                    border: "1px solid #e2e8f0",
-                                  }}
-                                >
-                                  {item.entryBy || item.approvedBy || "Admin"}
-                                </span>
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      });
-                    }
-
-                    // BILL WITHOUT ITEMS
-                    return (
-                      <tr
-                        key={item.uid}
-                        className="ae-ledger-row"
-                        onClick={() => setSelectedPurchaseEntryForModal(item)}
-                        title="Click to view full details, edit, or delete"
-                        style={{ background: billBg, borderBottom: rowBorderBottom, cursor: "pointer" }}
-                      >
-                        <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>
-                          {item.date}
-                        </td>
-                        <td style={{ verticalAlign: "top", fontWeight: 700, color: "#0f172a" }}>
-                          <div>{item.billNo && item.billNo !== "—" ? `Bill #${item.billNo}` : "—"}</div>
-                          {item.party && (
-                            <div className="ae-party-pill">
-                              <span>{item.party}</span>
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ verticalAlign: "top", fontWeight: 600 }}>
-                          {item.note || "General Bill"}
-                        </td>
-                        <td className="num" style={{ verticalAlign: "top" }}>
-                          {item.weight != null ? `${fmt(item.weight)} kg` : "—"}
-                        </td>
-                        <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
-                        <td className="num" style={{ verticalAlign: "top", fontWeight: 700 }}>৳ {fmt(item.amount)}</td>
-                        <td className="num" style={{ verticalAlign: "top", fontWeight: 800, whiteSpace: "nowrap" }}>+ ৳ {fmt(item.amount)}</td>
-                        <td style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
-                        <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
-                        <td className="num" style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>
-                          <b style={{ color: rBal >= 0 ? "#dc2626" : "#059669" }}>
-                            ৳ {fmt(rBal)}
-                          </b>
-                        </td>
-                        <td style={{ textAlign: "center", verticalAlign: "top" }} onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            className={`ae-status-btn ${isApproved ? "approved" : "pending"}`}
-                            onClick={() => handleToggleStatus(item)}
-                            disabled={busy}
-                            style={{ fontSize: "0.72rem", padding: "3px 8px" }}
-                            title={
-                              isApproved
-                                ? `Approved by: ${item.approvedBy || "Admin"}${item.approvedAt ? ` on ${item.approvedAt}` : ""}. Click to change to Pending.`
-                                : "Pending Approval. Click to Approve now."
-                            }
-                          >
-                            {isApproved ? (
-                              <>
-                                <CheckIcon size={11} /> Approved
-                              </>
-                            ) : (
-                              <>
-                                <ClockIcon size={11} /> Pending
-                              </>
-                            )}
-                          </button>
-                        </td>
-                        <td style={{ textAlign: "center", verticalAlign: "top", whiteSpace: "nowrap" }}>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 7px",
-                              borderRadius: "5px",
-                              fontSize: "0.74rem",
-                              fontWeight: 700,
-                              background: "#f1f5f9",
-                              color: "#334155",
-                              border: "1px solid #e2e8f0",
-                            }}
-                          >
-                            {item.entryBy || item.approvedBy || "Admin"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  if (moduleFilter === "expense") {
-                    const isBank = item.method === "Bank" || item.payment_method === "Bank";
-                    const hasBankPair = Boolean((item.fromBank || item.from_bank) && (item.toBank || item.to_bank));
-                    const isDep = isDepositCategory(item.category || item.subType);
-                    const rowBg = isDep ? "rgba(240, 253, 244, 0.45)" : (idx % 2 === 0 ? "#ffffff" : "#f8fafc");
-
-                    return (
-                      <tr
-                        key={item.uid}
-                        className="ae-ledger-row"
-                        onClick={() => {
-                          setSelectedExpenseForModal(item);
-                          setIsEditingExpenseModal(false);
-                          setEditExpenseModalData(null);
-                          setExpenseModalErr("");
-                        }}
-                        title="Click to view full expense details, edit, or delete"
-                        style={{ background: rowBg, cursor: "pointer" }}
-                      >
-                        <td style={{ verticalAlign: "middle", whiteSpace: "nowrap" }}>
-                          {item.date}
-                        </td>
-                        <td style={{ verticalAlign: "middle", fontWeight: 600, color: "#0f172a" }}>
-                          {item.title}
-                        </td>
-                        <td style={{ verticalAlign: "middle" }}>
-                          <span className={`ex-cat-tag ${isDep ? "deposit" : ""}`}>
-                            {item.category || item.subType || "General"}
-                          </span>
-                          {isDep && <span className="ex-deposit-sub">Deposit (Not Expense)</span>}
-                        </td>
-                        <td style={{ verticalAlign: "middle" }}>
-                          <span style={{ fontWeight: 600, color: "#1e293b" }}>{item.paidTo || item.paid_to || item.party || "—"}</span>
-                          {item.phone && (
-                            <span style={{ display: "block", fontSize: "0.75rem", color: "#64748b", marginTop: 2 }}>
-                              📞 {item.phone}
+                      return (
+                        <tr
+                          key={item.uid}
+                          className="ae-ledger-row"
+                          onClick={() => {
+                            setSelectedExpenseForModal(item);
+                            setIsEditingExpenseModal(false);
+                            setEditExpenseModalData(null);
+                            setExpenseModalErr("");
+                          }}
+                          title="Click to view full expense details, edit, or delete"
+                          style={{ background: rowBg, cursor: "pointer" }}
+                        >
+                          <td style={{ verticalAlign: "middle", whiteSpace: "nowrap" }}>
+                            {item.date}
+                          </td>
+                          <td style={{ verticalAlign: "middle", fontWeight: 600, color: "#0f172a" }}>
+                            {item.title}
+                          </td>
+                          <td style={{ verticalAlign: "middle" }}>
+                            <span className={`ex-cat-tag ${isDep ? "deposit" : ""}`}>
+                              {item.category || item.subType || "General"}
                             </span>
-                          )}
-                          {Boolean(item.isSynced || item.linkedClient || item.linkedEntryId) && (
-                            <span className="ex-ledger-badge" title="Recorded as payment in Purchase ledger" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-                              <CheckIcon size={11} /> Ledger
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ verticalAlign: "middle" }}>
-                          {isBank ? (
-                            <span className="ex-method-pill bank" title={hasBankPair ? `${item.fromBank || item.from_bank} → ${item.toBank || item.to_bank}` : (isDep ? `To: ${item.toBank || item.fromBank || "Bank"}` : "Bank Transfer")}>
-                              {hasBankPair ? `${item.fromBank || item.from_bank} → ${item.toBank || item.to_bank}` : (item.fromBank || item.from_bank || item.toBank || item.to_bank || "Bank")}
-                            </span>
-                          ) : (
-                            <span className="ex-method-pill">
-                              {item.method || item.payment_method || "Cash"}
-                            </span>
-                          )}
-                        </td>
-                        <td className="num" style={{ verticalAlign: "middle", textAlign: "right", fontWeight: 700, whiteSpace: "nowrap", color: isDep ? "#15803d" : "#0f172a" }}>
-                          ৳ {fmt(item.amount)}
-                        </td>
-                        <td style={{ verticalAlign: "middle", color: item.note ? "#475569" : "#94a3b8", fontSize: "0.82rem" }}>
-                          {item.note || "—"}
-                        </td>
-                        <td style={{ textAlign: "center", verticalAlign: "middle" }} onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            className={`ae-status-btn ${isApproved ? "approved" : "pending"}`}
-                            onClick={() => handleToggleStatus(item)}
-                            disabled={busy}
-                            style={{ fontSize: "0.72rem", padding: "3px 8px" }}
-                            title={
-                              isApproved
-                                ? `Approved by: ${item.approvedBy || "Admin"}${item.approvedAt ? ` on ${item.approvedAt}` : ""}. Click to change to Pending.`
-                                : "Pending Approval. Click to Approve now."
-                            }
-                          >
-                            {isApproved ? (
-                              <>
-                                <CheckIcon size={11} /> Approved
-                              </>
-                            ) : (
-                              <>
-                                <ClockIcon size={11} /> Pending
-                              </>
-                            )}
-                          </button>
-                        </td>
-                        <td style={{ textAlign: "center", verticalAlign: "middle", whiteSpace: "nowrap" }}>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "2px 7px",
-                              borderRadius: "5px",
-                              fontSize: "0.74rem",
-                              fontWeight: 700,
-                              background: "#f1f5f9",
-                              color: "#334155",
-                              border: "1px solid #e2e8f0",
-                            }}
-                          >
-                            {item.entryBy || item.approvedBy || "Admin"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  return (
-                    <tr
-                      key={item.uid}
-                      style={{ ...(isSelected ? { background: "#fef9c3" } : {}), cursor: "pointer" }}
-                      className="ae-ledger-row"
-                      onClick={() => {
-                        if (item.source === "expense") {
-                          setSelectedExpenseForModal(item);
-                          setIsEditingExpenseModal(false);
-                          setEditExpenseModalData(null);
-                          setExpenseModalErr("");
-                        } else if (item.source === "customer_bill") {
-                          setSelectedCustomerBillForModal(item);
-                        } else if (item.source === "dealer_supplier") {
-                          setSelectedPurchaseEntryForModal(item);
-                        }
-                      }}
-                      title="Click to view details, edit or delete"
-                    >
-                      <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => handleToggleRowSelect(item.uid)}
-                        />
-                      </td>
-                      <td style={{ color: "var(--be-text-muted)", fontSize: "0.8rem" }}>
-                        {idx + 1}
-                      </td>
-                      <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>
-                        {prettyDate(item.date)}
-                      </td>
-                      <td>
-                        {getTypeBadge(item)}
-                      </td>
-                      <td>
-                        <div className="ae-party-name">{item.party}</div>
-                        {item.isSynced && (
-                          <div className="ae-synced-sub">
-                            Synced to {item.linkedClient || "Dealer"}&apos;s ledger
-                          </div>
-                        )}
-                        {item.note && (
-                          <div className="ae-note-text" title={item.note}>
-                            {item.note}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        {item.billNo && item.billNo !== "—" ? (
-                          <span className="ae-bill-badge">#{item.billNo}</span>
-                        ) : (
-                          <span className="ae-dash-text">—</span>
-                        )}
-                      </td>
-                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                        {item.flow === "in" ? (
-                          <span className="ae-amount-text in" style={{ color: "#059669", fontWeight: 800 }}>
-                            + ৳ {fmt(item.amount)}
-                          </span>
-                        ) : item.flow === "out" ? (
-                          <span className="ae-amount-text out" style={{ color: "#dc2626", fontWeight: 800 }}>
-                            - ৳ {fmt(item.amount)}
-                          </span>
-                        ) : item.flow === "in_bill" ? (
-                          <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end" }}>
-                            <span className="ae-amount-text none" style={{ color: "#0f172a", fontWeight: 800 }}>
-                              ৳ {fmt(item.totalBill || item.amount)}
-                            </span>
-                            {item.payment > 0 && (
-                              <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#059669", marginTop: "1px" }}>
-                                + ৳ {fmt(item.payment)}
+                            {isDep && <span className="ex-deposit-sub">Deposit (Not Expense)</span>}
+                          </td>
+                          <td style={{ verticalAlign: "middle" }}>
+                            <span style={{ fontWeight: 600, color: "#1e293b" }}>{item.paidTo || item.paid_to || item.party || "—"}</span>
+                            {item.phone && (
+                              <span style={{ display: "block", fontSize: "0.75rem", color: "#64748b", marginTop: 2 }}>
+                                📞 {item.phone}
                               </span>
                             )}
-                          </div>
-                        ) : (
-                          <span className="ae-amount-text none" style={{ color: "#0f172a", fontWeight: 800 }}>
+                            {Boolean(item.isSynced || item.linkedClient || item.linkedEntryId) && (
+                              <span className="ex-ledger-badge" title="Recorded as payment in Purchase ledger" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 2 }}>
+                                <CheckIcon size={11} /> Ledger
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ verticalAlign: "middle" }}>
+                            {isBank ? (
+                              <span className="ex-method-pill bank" title={hasBankPair ? `${item.fromBank || item.from_bank} → ${item.toBank || item.to_bank}` : (isDep ? `To: ${item.toBank || item.fromBank || "Bank"}` : "Bank Transfer")}>
+                                {hasBankPair ? `${item.fromBank || item.from_bank} → ${item.toBank || item.to_bank}` : (item.fromBank || item.from_bank || item.toBank || item.to_bank || "Bank")}
+                              </span>
+                            ) : (
+                              <span className="ex-method-pill">
+                                {item.method || item.payment_method || "Cash"}
+                              </span>
+                            )}
+                          </td>
+                          <td className="num" style={{ verticalAlign: "middle", textAlign: "right", fontWeight: 700, whiteSpace: "nowrap", color: isDep ? "#15803d" : "#0f172a" }}>
                             ৳ {fmt(item.amount)}
-                          </span>
-                        )}
-                      </td>
-                      {moduleFilter !== "all" && (
+                          </td>
+                          <td style={{ verticalAlign: "middle", color: item.note ? "#475569" : "#94a3b8", fontSize: "0.82rem" }}>
+                            {item.note || "—"}
+                          </td>
+                          <td style={{ textAlign: "center", verticalAlign: "middle" }} onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className={`ae-status-btn ${isApproved ? "approved" : "pending"}`}
+                              onClick={() => handleToggleStatus(item)}
+                              disabled={busy}
+                              style={{ fontSize: "0.72rem", padding: "3px 8px" }}
+                              title={
+                                isApproved
+                                  ? `Approved by: ${item.approvedBy || "Admin"}${item.approvedAt ? ` on ${item.approvedAt}` : ""}. Click to change to Pending.`
+                                  : "Pending Approval. Click to Approve now."
+                              }
+                            >
+                              {isApproved ? (
+                                <>
+                                  <CheckIcon size={11} /> Approved
+                                </>
+                              ) : (
+                                <>
+                                  <ClockIcon size={11} /> Pending
+                                </>
+                              )}
+                            </button>
+                          </td>
+                          <td style={{ textAlign: "center", verticalAlign: "middle", whiteSpace: "nowrap" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 7px",
+                                borderRadius: "5px",
+                                fontSize: "0.74rem",
+                                fontWeight: 700,
+                                background: "#f1f5f9",
+                                color: "#334155",
+                                border: "1px solid #e2e8f0",
+                              }}
+                            >
+                              {item.entryBy || item.approvedBy || "Admin"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return (
+                      <tr
+                        key={item.uid}
+                        style={{ ...(isSelected ? { background: "#fef9c3" } : {}), cursor: "pointer" }}
+                        className="ae-ledger-row"
+                        onClick={() => {
+                          if (item.source === "expense") {
+                            setSelectedExpenseForModal(item);
+                            setIsEditingExpenseModal(false);
+                            setEditExpenseModalData(null);
+                            setExpenseModalErr("");
+                          } else if (item.source === "customer_bill") {
+                            setSelectedCustomerBillForModal(item);
+                          } else if (item.source === "dealer_supplier") {
+                            setSelectedPurchaseEntryForModal(item);
+                          }
+                        }}
+                        title="Click to view details, edit or delete"
+                      >
+                        <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleRowSelect(item.uid)}
+                          />
+                        </td>
+                        <td style={{ color: "var(--be-text-muted)", fontSize: "0.8rem" }}>
+                          {idx + 1}
+                        </td>
+                        <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>
+                          {prettyDate(item.date)}
+                        </td>
                         <td>
-                          <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "#1e293b" }}>
-                            {item.method || "Cash"}
-                          </div>
-                          {item.fromBank && item.toBank && (
-                            <div className="ae-bank-sub" title={`${item.fromBank} → ${item.toBank}`}>
-                              {item.fromBank} → {item.toBank}
+                          {getTypeBadge(item)}
+                        </td>
+                        <td>
+                          <div className="ae-party-name">{item.party}</div>
+                          {item.isSynced && (
+                            <div className="ae-synced-sub">
+                              Synced to {item.linkedClient || "Dealer"}&apos;s ledger
+                            </div>
+                          )}
+                          {item.note && (
+                            <div className="ae-note-text" title={item.note}>
+                              {item.note}
                             </div>
                           )}
                         </td>
-                      )}
-                      <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          className={`ae-status-btn ${isApproved ? "approved" : "pending"}`}
-                          onClick={() => handleToggleStatus(item)}
-                          disabled={busy}
-                          title={
-                            isApproved
-                              ? `Approved by: ${item.approvedBy || "Admin"}${item.approvedAt ? ` on ${item.approvedAt}` : ""}. Click to change to Pending.`
-                              : "Pending Approval. Click to Approve now."
-                          }
-                        >
-                          {isApproved ? (
-                            <>
-                              <CheckIcon size={12} /> Approved
-                            </>
+                        <td>
+                          {item.billNo && item.billNo !== "—" ? (
+                            <span className="ae-bill-badge">#{item.billNo}</span>
                           ) : (
-                            <>
-                              <ClockIcon size={12} /> Pending
-                            </>
+                            <span className="ae-dash-text">—</span>
                           )}
-                        </button>
-                      </td>
-                      <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "3px 9px",
-                            borderRadius: "6px",
-                            fontSize: "0.78rem",
-                            fontWeight: 700,
-                            background: "#f1f5f9",
-                            color: "#334155",
-                            border: "1px solid #e2e8f0",
-                          }}
-                        >
-                          {item.entryBy || item.approvedBy || "Admin"}
-                        </span>
-                      </td>
-                      {moduleFilter !== "all" && (
-                        <td onClick={(e) => e.stopPropagation()}>
-                          <div className="ae-actions-cell">
-                            <button
-                              type="button"
-                              className="ae-icon-btn edit"
-                              onClick={() => handleOpenEdit(item)}
-                              title="Edit Entry"
-                            >
-                              <EditIcon size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className="ae-icon-btn delete"
-                              onClick={() => handleDelete(item)}
-                              title="Delete Entry"
-                            >
-                              <TrashIcon size={14} />
-                            </button>
-                          </div>
                         </td>
-                      )}
-                    </tr>
-                  );
-                })}
+                        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                          {item.flow === "in" ? (
+                            <span className="ae-amount-text in" style={{ color: "#059669", fontWeight: 800 }}>
+                              + ৳ {fmt(item.amount)}
+                            </span>
+                          ) : item.flow === "out" ? (
+                            <span className="ae-amount-text out" style={{ color: "#dc2626", fontWeight: 800 }}>
+                              - ৳ {fmt(item.amount)}
+                            </span>
+                          ) : item.flow === "in_bill" ? (
+                            <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end" }}>
+                              <span className="ae-amount-text none" style={{ color: "#0f172a", fontWeight: 800 }}>
+                                ৳ {fmt(item.totalBill || item.amount)}
+                              </span>
+                              {item.payment > 0 && (
+                                <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#059669", marginTop: "1px" }}>
+                                  + ৳ {fmt(item.payment)}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="ae-amount-text none" style={{ color: "#0f172a", fontWeight: 800 }}>
+                              ৳ {fmt(item.amount)}
+                            </span>
+                          )}
+                        </td>
+                        {moduleFilter !== "all" && (
+                          <td>
+                            <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "#1e293b" }}>
+                              {item.method || "Cash"}
+                            </div>
+                            {item.fromBank && item.toBank && (
+                              <div className="ae-bank-sub" title={`${item.fromBank} → ${item.toBank}`}>
+                                {item.fromBank} → {item.toBank}
+                              </div>
+                            )}
+                          </td>
+                        )}
+                        <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            className={`ae-status-btn ${isApproved ? "approved" : "pending"}`}
+                            onClick={() => handleToggleStatus(item)}
+                            disabled={busy}
+                            title={
+                              isApproved
+                                ? `Approved by: ${item.approvedBy || "Admin"}${item.approvedAt ? ` on ${item.approvedAt}` : ""}. Click to change to Pending.`
+                                : "Pending Approval. Click to Approve now."
+                            }
+                          >
+                            {isApproved ? (
+                              <>
+                                <CheckIcon size={12} /> Approved
+                              </>
+                            ) : (
+                              <>
+                                <ClockIcon size={12} /> Pending
+                              </>
+                            )}
+                          </button>
+                        </td>
+                        <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "3px 9px",
+                              borderRadius: "6px",
+                              fontSize: "0.78rem",
+                              fontWeight: 700,
+                              background: "#f1f5f9",
+                              color: "#334155",
+                              border: "1px solid #e2e8f0",
+                            }}
+                          >
+                            {item.entryBy || item.approvedBy || "Admin"}
+                          </span>
+                        </td>
+                        {moduleFilter !== "all" && (
+                          <td onClick={(e) => e.stopPropagation()}>
+                            <div className="ae-actions-cell">
+                              <button
+                                type="button"
+                                className="ae-icon-btn edit"
+                                onClick={() => handleOpenEdit(item)}
+                                title="Edit Entry"
+                              >
+                                <EditIcon size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="ae-icon-btn delete"
+                                onClick={() => handleDelete(item)}
+                                title="Delete Entry"
+                              >
+                                <TrashIcon size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
               {moduleFilter === "dealer_supplier" && filteredEntries.length > 0 && (() => {
                 const dsTotalBill = filteredEntries.reduce((s, r) => {
@@ -2670,6 +3073,23 @@ export default function AllEntriesAuditPage() {
                         <td colSpan={3}></td>
                       </tr>
                     )}
+                  </tfoot>
+                );
+              })()}
+
+              {moduleFilter === "recycle_bin" && filteredRecycleBin.length > 0 && (() => {
+                const totalAmount = filteredRecycleBin.reduce((s, r) => s + Number(r.amount || 0), 0);
+                return (
+                  <tfoot>
+                    <tr style={{ background: "#fef2f2", fontWeight: 700, borderTop: "2px solid #fecaca" }}>
+                      <td colSpan={6} style={{ textAlign: "right", fontWeight: 800, textTransform: "uppercase", fontSize: "0.8rem", color: "#991b1b", padding: "10px 8px" }}>
+                        TOTAL DELETED VOLUME ({filteredRecycleBin.length} {filteredRecycleBin.length === 1 ? "ENTRY" : "ENTRIES"}):
+                      </td>
+                      <td className="num" style={{ fontWeight: 800, color: "#b91c1c", textAlign: "right", padding: "10px 8px", whiteSpace: "nowrap" }}>
+                        ৳ {fmt(totalAmount)}
+                      </td>
+                      <td colSpan={3}></td>
+                    </tr>
                   </tfoot>
                 );
               })()}
@@ -2787,30 +3207,30 @@ export default function AllEntriesAuditPage() {
                       borderRadius: "20px",
                       fontSize: "0.82rem",
                       fontWeight: 800,
-                      background: (isEditingCustomerModal ? editCustomerRunningBalance : rBal) > 0
+                      background: (isEditingCustomerModal ? editCustomerRunningBalance : rBal) >= 0.005
                         ? "rgba(220, 38, 38, 0.2)"
-                        : (isEditingCustomerModal ? editCustomerRunningBalance : rBal) < 0
-                        ? "rgba(16, 185, 129, 0.2)"
-                        : "rgba(148, 163, 184, 0.2)",
-                      color: (isEditingCustomerModal ? editCustomerRunningBalance : rBal) > 0
+                        : (isEditingCustomerModal ? editCustomerRunningBalance : rBal) <= -0.005
+                          ? "rgba(16, 185, 129, 0.2)"
+                          : "rgba(148, 163, 184, 0.2)",
+                      color: (isEditingCustomerModal ? editCustomerRunningBalance : rBal) >= 0.005
                         ? "#fca5a5"
-                        : (isEditingCustomerModal ? editCustomerRunningBalance : rBal) < 0
-                        ? "#6ee7b7"
-                        : "#cbd5e1",
-                      border: `1px solid ${(isEditingCustomerModal ? editCustomerRunningBalance : rBal) > 0 ? "rgba(220, 38, 38, 0.4)" : (isEditingCustomerModal ? editCustomerRunningBalance : rBal) < 0 ? "rgba(16, 185, 129, 0.4)" : "rgba(148, 163, 184, 0.4)"}`,
+                        : (isEditingCustomerModal ? editCustomerRunningBalance : rBal) <= -0.005
+                          ? "#6ee7b7"
+                          : "#cbd5e1",
+                      border: `1px solid ${(isEditingCustomerModal ? editCustomerRunningBalance : rBal) >= 0.005 ? "rgba(220, 38, 38, 0.4)" : (isEditingCustomerModal ? editCustomerRunningBalance : rBal) <= -0.005 ? "rgba(16, 185, 129, 0.4)" : "rgba(148, 163, 184, 0.4)"}`,
                     }}
                   >
                     {isEditingCustomerModal
-                      ? editCustomerRunningBalance > 0
+                      ? editCustomerRunningBalance >= 0.005
                         ? `Live Due: ৳ ${fmt(editCustomerRunningBalance)}`
-                        : editCustomerRunningBalance < 0
-                        ? `Live Adv: ৳ ${fmt(Math.abs(editCustomerRunningBalance))}`
-                        : "Live: Settled"
-                      : rBal > 0
-                      ? `Due: ৳ ${fmt(rBal)}`
-                      : rBal < 0
-                      ? `Adv: ৳ ${fmt(Math.abs(rBal))}`
-                      : "Fully Settled"}
+                        : editCustomerRunningBalance <= -0.005
+                          ? `Live Adv: ৳ ${fmt(Math.abs(editCustomerRunningBalance))}`
+                          : "Live: Settled"
+                      : rBal >= 0.005
+                        ? `Due: ৳ ${fmt(rBal)}`
+                        : rBal <= -0.005
+                          ? `Adv: ৳ ${fmt(Math.abs(rBal))}`
+                          : "Fully Settled"}
                   </div>
 
                   {!isEditingCustomerModal && (
@@ -3011,12 +3431,15 @@ export default function AllEntriesAuditPage() {
                       <datalist id="all-entries-unit-presets">
                         <option value="pcs" />
                         <option value="kg" />
-                        <option value="meter" />
-                        <option value="box" />
-                        <option value="nos" />
                         <option value="sft" />
-                        <option value="ton" />
+                        <option value="rft" />
+                        <option value="meter" />
+                        <option value="roll" />
+                        <option value="box" />
+                        <option value="trip" />
                         <option value="set" />
+                        <option value="nos" />
+                        <option value="ton" />
                         <option value="bundle" />
                         <option value="coil" />
                       </datalist>
@@ -3024,7 +3447,8 @@ export default function AllEntriesAuditPage() {
                         <thead>
                           <tr style={{ background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", color: "#475569", textTransform: "uppercase", fontSize: "0.72rem" }}>
                             <th style={{ padding: "8px 10px", width: "30px", textAlign: "center" }}>#</th>
-                            <th style={{ padding: "8px 10px", minWidth: "160px" }}>Item Description</th>
+                            <th style={{ padding: "8px 10px", minWidth: "150px" }}>Item Description</th>
+                            <th style={{ padding: "8px 10px", width: "135px" }}>Item Note</th>
                             <th style={{ padding: "8px 10px", width: "95px", textAlign: "right" }}>Quantity</th>
                             <th style={{ padding: "8px 10px", width: "80px", textAlign: "center" }}>Unit</th>
                             <th style={{ padding: "8px 10px", width: "85px", textAlign: "right" }}>Rate (৳)</th>
@@ -3047,6 +3471,16 @@ export default function AllEntriesAuditPage() {
                                   value={it.name}
                                   placeholder="Item name"
                                   onChange={(e) => handleCustomerModalItemChange(i, "name", e.target.value)}
+                                />
+                              </td>
+                              <td style={{ padding: "6px 8px" }}>
+                                <input
+                                  type="text"
+                                  className="be-input"
+                                  style={{ padding: "5px 8px", fontSize: "0.82rem" }}
+                                  value={it.note || ""}
+                                  placeholder="Note / specs"
+                                  onChange={(e) => handleCustomerModalItemChange(i, "note", e.target.value)}
                                 />
                               </td>
                               <td style={{ padding: "6px 8px" }}>
@@ -3143,7 +3577,14 @@ export default function AllEntriesAuditPage() {
                           {items.map((it, i) => (
                             <tr key={i} style={{ borderBottom: i === items.length - 1 ? "none" : "1px solid #f1f5f9" }}>
                               <td style={{ padding: "9px 12px", textAlign: "center", color: "#94a3b8", fontWeight: 600 }}>{i + 1}</td>
-                              <td style={{ padding: "9px 12px", fontWeight: 700, color: "#0f172a" }}>{it.name || "—"}</td>
+                              <td style={{ padding: "9px 12px", color: "#0f172a" }}>
+                                <div style={{ fontWeight: 700 }}>{it.name || "—"}</div>
+                                {it.note && (
+                                  <div style={{ fontSize: "0.76rem", color: "#64748b", marginTop: "2px", display: "inline-flex", alignItems: "center", gap: 4, background: "#f8fafc", padding: "1px 6px", borderRadius: "4px", border: "1px solid #e2e8f0" }}>
+                                    <span style={{ color: "#94a3b8" }}>Note:</span> {it.note}
+                                  </div>
+                                )}
+                              </td>
                               <td style={{ padding: "9px 12px", textAlign: "right", color: "#475569" }}>
                                 {it.quantity !== undefined && it.quantity !== "" ? it.quantity : (it.weight || "—")}
                               </td>
@@ -3262,29 +3703,29 @@ export default function AllEntriesAuditPage() {
                     <div style={{ display: "flex", justifyContent: "space-between", color: "#dc2626" }}>
                       <span>Due for this bill:</span>
                       <span style={{ fontWeight: 700 }}>
-                        ৳ {fmt(isEditingCustomerModal ? (editCustomerDueAdvance > 0 ? editCustomerDueAdvance : 0) : dueThisBill)}
+                        ৳ {fmt(isEditingCustomerModal ? (editCustomerDueAdvance >= 0.005 ? editCustomerDueAdvance : 0) : dueThisBill)}
                       </span>
                     </div>
 
                     <div style={{ display: "flex", justifyContent: "space-between", color: "#059669" }}>
                       <span>Advance for this bill:</span>
                       <span style={{ fontWeight: 700 }}>
-                        ৳ {fmt(isEditingCustomerModal ? (editCustomerDueAdvance < 0 ? Math.abs(editCustomerDueAdvance) : 0) : advanceThisBill)}
+                        ৳ {fmt(isEditingCustomerModal ? (editCustomerDueAdvance <= -0.005 ? Math.abs(editCustomerDueAdvance) : 0) : advanceThisBill)}
                       </span>
                     </div>
 
-                    {dueReceived > 0 && !isEditingCustomerModal && (
+                    {dueReceived >= 0.005 && !isEditingCustomerModal && (
                       <div style={{ display: "flex", justifyContent: "space-between", color: "#2563eb" }}>
                         <span>Due Received:</span>
                         <span style={{ fontWeight: 700 }}>৳ {fmt(dueReceived)}</span>
                       </div>
                     )}
 
-                    {prev !== 0 && (
+                    {Math.abs(prev) >= 0.005 && (
                       <div style={{ display: "flex", justifyContent: "space-between", color: "#64748b", fontSize: "0.8rem" }}>
                         <span>Previous Balance:</span>
-                        <span style={{ fontWeight: 600, color: prev > 0 ? "#dc2626" : "#059669" }}>
-                          {prev > 0 ? `Due ৳ ${fmt(prev)}` : `Adv ৳ ${fmt(Math.abs(prev))}`}
+                        <span style={{ fontWeight: 600, color: prev >= 0.005 ? "#dc2626" : "#059669" }}>
+                          {prev >= 0.005 ? `Due ৳ ${fmt(prev)}` : `Adv ৳ ${fmt(Math.abs(prev))}`}
                         </span>
                       </div>
                     )}
@@ -3299,20 +3740,20 @@ export default function AllEntriesAuditPage() {
                         alignItems: "center",
                         fontWeight: 800,
                         fontSize: "0.95rem",
-                        color: (isEditingCustomerModal ? editCustomerRunningBalance : rBal) > 0
+                        color: (isEditingCustomerModal ? editCustomerRunningBalance : rBal) >= 0.005
                           ? "#dc2626"
-                          : (isEditingCustomerModal ? editCustomerRunningBalance : rBal) < 0
-                          ? "#059669"
-                          : "#475569",
+                          : (isEditingCustomerModal ? editCustomerRunningBalance : rBal) <= -0.005
+                            ? "#059669"
+                            : "#475569",
                       }}
                     >
                       <span>Final Net Balance:</span>
                       <span>
-                        {(isEditingCustomerModal ? editCustomerRunningBalance : rBal) > 0
+                        {(isEditingCustomerModal ? editCustomerRunningBalance : rBal) >= 0.005
                           ? `Due: ৳ ${fmt(isEditingCustomerModal ? editCustomerRunningBalance : rBal)}`
-                          : (isEditingCustomerModal ? editCustomerRunningBalance : rBal) < 0
-                          ? `Adv: ৳ ${fmt(Math.abs(isEditingCustomerModal ? editCustomerRunningBalance : rBal))}`
-                          : "Fully Settled"}
+                          : (isEditingCustomerModal ? editCustomerRunningBalance : rBal) <= -0.005
+                            ? `Adv: ৳ ${fmt(Math.abs(isEditingCustomerModal ? editCustomerRunningBalance : rBal))}`
+                            : "Fully Settled"}
                       </span>
                     </div>
                   </div>
@@ -3474,8 +3915,8 @@ export default function AllEntriesAuditPage() {
                       background: isEditingPurchaseModal
                         ? "#f59e0b"
                         : isBill
-                        ? "#e11d48"
-                        : "#059669",
+                          ? "#e11d48"
+                          : "#059669",
                       color: isEditingPurchaseModal ? "#000000" : "#ffffff",
                       padding: "3px 9px",
                       borderRadius: "6px",
@@ -3488,8 +3929,8 @@ export default function AllEntriesAuditPage() {
                     {isEditingPurchaseModal
                       ? "✏️ Edit Mode"
                       : isBill
-                      ? "Purchase Bill Voucher"
-                      : "Payment Voucher"}
+                        ? "Purchase Bill Voucher"
+                        : "Payment Voucher"}
                   </span>
                   <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700, color: "#fff" }}>
                     {isBill
@@ -3846,258 +4287,280 @@ export default function AllEntriesAuditPage() {
                     </div>
                   </div>
                 ) : (
-                /* EDIT MODE */
-                <div>
-                  {purchaseModalErr && (
-                    <div style={{ background: "#fee2e2", border: "1px solid #fecaca", color: "#dc2626", padding: "8px 12px", borderRadius: 8, marginBottom: 14, fontSize: "0.85rem", fontWeight: 600 }}>
-                      {purchaseModalErr}
-                    </div>
-                  )}
+                  /* EDIT MODE */
+                  <div>
+                    {purchaseModalErr && (
+                      <div style={{ background: "#fee2e2", border: "1px solid #fecaca", color: "#dc2626", padding: "8px 12px", borderRadius: 8, marginBottom: 14, fontSize: "0.85rem", fontWeight: 600 }}>
+                        {purchaseModalErr}
+                      </div>
+                    )}
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-                    <div>
-                      <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Date</label>
-                      <input
-                        type="date"
-                        className="be-input"
-                        value={editPurchaseModalData.entry_date}
-                        onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, entry_date: e.target.value })}
-                        style={{ marginTop: 4 }}
-                      />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+                      <div>
+                        <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Date</label>
+                        <input
+                          type="date"
+                          className="be-input"
+                          value={editPurchaseModalData.entry_date}
+                          onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, entry_date: e.target.value })}
+                          style={{ marginTop: 4 }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>
+                          {editPurchaseModalData.type === "bill" ? "Bill No." : "Against Bill No (Optional)"}
+                        </label>
+                        <input
+                          type="text"
+                          className="be-input"
+                          placeholder="e.g. B-105"
+                          value={editPurchaseModalData.bill_no}
+                          onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, bill_no: e.target.value })}
+                          style={{ marginTop: 4 }}
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>
-                        {editPurchaseModalData.type === "bill" ? "Bill No." : "Against Bill No (Optional)"}
-                      </label>
-                      <input
-                        type="text"
-                        className="be-input"
-                        placeholder="e.g. B-105"
-                        value={editPurchaseModalData.bill_no}
-                        onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, bill_no: e.target.value })}
-                        style={{ marginTop: 4 }}
-                      />
-                    </div>
-                  </div>
 
-                  {editPurchaseModalData.type === "bill" ? (
-                    <>
-                      {/* Items Editor */}
-                      {Array.isArray(editPurchaseModalData.items) && editPurchaseModalData.items.length > 0 ? (
-                        <div style={{ marginBottom: 14 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                            <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b", margin: 0 }}>
-                              Purchased Items
-                            </label>
-                            <button
-                              type="button"
-                              onClick={addPurchaseEditItem}
-                              style={{
-                                background: "#f1f5f9",
-                                border: "1px solid #cbd5e1",
-                                color: "#0f172a",
-                                padding: "4px 10px",
-                                borderRadius: 6,
-                                fontSize: "0.76rem",
-                                fontWeight: 700,
-                                cursor: "pointer",
-                              }}
-                            >
-                              + Add Item
-                            </button>
-                          </div>
-
-                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                            {editPurchaseModalData.items.map((it, idx) => (
-                              <div
-                                key={idx}
+                    {editPurchaseModalData.type === "bill" ? (
+                      <>
+                        {/* Items Editor */}
+                        {Array.isArray(editPurchaseModalData.items) && editPurchaseModalData.items.length > 0 ? (
+                          <div style={{ marginBottom: 14 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                              <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b", margin: 0 }}>
+                                Purchased Items
+                              </label>
+                              <button
+                                type="button"
+                                onClick={addPurchaseEditItem}
                                 style={{
-                                  display: "grid",
-                                  gridTemplateColumns: "1.8fr 1fr 0.9fr 1fr 1.1fr auto",
-                                  gap: 6,
-                                  alignItems: "center",
-                                  background: "#f8fafc",
-                                  padding: "6px 8px",
-                                  borderRadius: 8,
-                                  border: "1px solid #e2e8f0",
+                                  background: "#f1f5f9",
+                                  border: "1px solid #cbd5e1",
+                                  color: "#0f172a",
+                                  padding: "4px 10px",
+                                  borderRadius: 6,
+                                  fontSize: "0.76rem",
+                                  fontWeight: 700,
+                                  cursor: "pointer",
                                 }}
                               >
-                                <input
-                                  type="text"
-                                  className="be-input"
-                                  placeholder="Item name"
-                                  value={it.name}
-                                  onChange={(e) => updatePurchaseEditItem(idx, "name", e.target.value)}
-                                  list="item-presets-list"
-                                  style={{ padding: "6px 8px", fontSize: "0.82rem" }}
-                                />
-                                <input
-                                  type="number"
-                                  step="any"
-                                  className="be-input"
-                                  placeholder="Quantity"
-                                  value={it.quantity !== undefined && it.quantity !== "" ? it.quantity : (it.weight || "")}
-                                  onChange={(e) => updatePurchaseEditItem(idx, "quantity", e.target.value)}
-                                  style={{ padding: "6px 8px", fontSize: "0.82rem" }}
-                                />
-                                <input
-                                  type="text"
-                                  className="be-input"
-                                  placeholder="Unit"
-                                  list="purchase-unit-presets"
-                                  value={it.unit || ""}
-                                  onChange={(e) => updatePurchaseEditItem(idx, "unit", e.target.value)}
-                                  style={{ padding: "6px 8px", fontSize: "0.82rem", textAlign: "center" }}
-                                />
-                                <input
-                                  type="number"
-                                  step="any"
-                                  className="be-input"
-                                  placeholder="Rate (৳)"
-                                  value={it.rate}
-                                  onChange={(e) => updatePurchaseEditItem(idx, "rate", e.target.value)}
-                                  style={{ padding: "6px 8px", fontSize: "0.82rem" }}
-                                />
-                                <input
-                                  type="number"
-                                  step="any"
-                                  className="be-input"
-                                  placeholder="Subtotal"
-                                  value={it.subtotal}
-                                  onChange={(e) => updatePurchaseEditItem(idx, "subtotal", e.target.value)}
-                                  style={{ padding: "6px 8px", fontSize: "0.82rem", fontWeight: 700 }}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => removePurchaseEditItem(idx)}
-                                  disabled={editPurchaseModalData.items.length <= 1}
+                                + Add Item
+                              </button>
+                            </div>
+
+                            {/* Column Headings */}
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1.8fr 1fr 0.9fr 1fr 1.1fr 24px",
+                                gap: 6,
+                                padding: "0 8px 4px 8px",
+                                fontSize: "0.72rem",
+                                fontWeight: 700,
+                                color: "#64748b",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.03em",
+                              }}
+                            >
+                              <span>Item Name</span>
+                              <span>Qty / Weight</span>
+                              <span style={{ textAlign: "center" }}>Unit</span>
+                              <span>Rate (৳)</span>
+                              <span>Total (৳)</span>
+                              <span></span>
+                            </div>
+
+                            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                              {editPurchaseModalData.items.map((it, idx) => (
+                                <div
+                                  key={idx}
                                   style={{
-                                    background: "none",
-                                    border: "none",
-                                    color: editPurchaseModalData.items.length <= 1 ? "#cbd5e1" : "#ef4444",
-                                    cursor: editPurchaseModalData.items.length <= 1 ? "not-allowed" : "pointer",
-                                    padding: 4,
+                                    display: "grid",
+                                    gridTemplateColumns: "1.8fr 1fr 0.9fr 1fr 1.1fr auto",
+                                    gap: 6,
+                                    alignItems: "center",
+                                    background: "#f8fafc",
+                                    padding: "6px 8px",
+                                    borderRadius: 8,
+                                    border: "1px solid #e2e8f0",
                                   }}
-                                  title="Remove item"
                                 >
-                                  <TrashIcon size={14} />
-                                </button>
-                              </div>
-                            ))}
+                                  <input
+                                    type="text"
+                                    className="be-input"
+                                    placeholder="Item name"
+                                    value={it.name}
+                                    onChange={(e) => updatePurchaseEditItem(idx, "name", e.target.value)}
+                                    list="item-presets-list"
+                                    style={{ padding: "6px 8px", fontSize: "0.82rem" }}
+                                  />
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    className="be-input"
+                                    placeholder="Quantity"
+                                    value={it.quantity !== undefined && it.quantity !== "" ? it.quantity : (it.weight || "")}
+                                    onChange={(e) => updatePurchaseEditItem(idx, "quantity", e.target.value)}
+                                    style={{ padding: "6px 8px", fontSize: "0.82rem" }}
+                                  />
+                                  <input
+                                    type="text"
+                                    className="be-input"
+                                    placeholder="Unit"
+                                    list="purchase-unit-presets"
+                                    value={it.unit || ""}
+                                    onChange={(e) => updatePurchaseEditItem(idx, "unit", e.target.value)}
+                                    style={{ padding: "6px 8px", fontSize: "0.82rem", textAlign: "center" }}
+                                  />
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    className="be-input"
+                                    placeholder="Rate (৳)"
+                                    value={it.rate}
+                                    onChange={(e) => updatePurchaseEditItem(idx, "rate", e.target.value)}
+                                    style={{ padding: "6px 8px", fontSize: "0.82rem" }}
+                                  />
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    className="be-input"
+                                    placeholder="Subtotal"
+                                    value={it.subtotal}
+                                    onChange={(e) => updatePurchaseEditItem(idx, "subtotal", e.target.value)}
+                                    style={{ padding: "6px 8px", fontSize: "0.82rem", fontWeight: 700 }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removePurchaseEditItem(idx)}
+                                    disabled={editPurchaseModalData.items.length <= 1}
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      color: editPurchaseModalData.items.length <= 1 ? "#cbd5e1" : "#ef4444",
+                                      cursor: editPurchaseModalData.items.length <= 1 ? "not-allowed" : "pointer",
+                                      padding: 4,
+                                    }}
+                                    title="Remove item"
+                                  >
+                                    <TrashIcon size={14} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {/* Extra Costs */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: 12, marginBottom: 14 }}>
+                          <div>
+                            <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Labour Cost (৳)</label>
+                            <input
+                              type="number"
+                              step="any"
+                              className="be-input"
+                              placeholder="0"
+                              value={editPurchaseModalData.labour_cost}
+                              onChange={(e) => updatePurchaseEditCost("labour_cost", e.target.value)}
+                              style={{ marginTop: 4 }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Transport Cost (৳)</label>
+                            <input
+                              type="number"
+                              step="any"
+                              className="be-input"
+                              placeholder="0"
+                              value={editPurchaseModalData.transport_cost}
+                              onChange={(e) => updatePurchaseEditCost("transport_cost", e.target.value)}
+                              style={{ marginTop: 4 }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Total Bill Amount (৳)</label>
+                            <input
+                              type="number"
+                              step="any"
+                              className="be-input"
+                              value={editPurchaseModalData.amount}
+                              onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, amount: e.target.value })}
+                              style={{ marginTop: 4, fontWeight: 700, color: "#991b1b" }}
+                            />
                           </div>
                         </div>
-                      ) : null}
-
-                      {/* Extra Costs */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.2fr", gap: 12, marginBottom: 14 }}>
+                      </>
+                    ) : (
+                      /* Payment Edit Fields */
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
                         <div>
-                          <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Labour Cost (৳)</label>
-                          <input
-                            type="number"
-                            step="any"
-                            className="be-input"
-                            placeholder="0"
-                            value={editPurchaseModalData.labour_cost}
-                            onChange={(e) => updatePurchaseEditCost("labour_cost", e.target.value)}
-                            style={{ marginTop: 4 }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Transport Cost (৳)</label>
-                          <input
-                            type="number"
-                            step="any"
-                            className="be-input"
-                            placeholder="0"
-                            value={editPurchaseModalData.transport_cost}
-                            onChange={(e) => updatePurchaseEditCost("transport_cost", e.target.value)}
-                            style={{ marginTop: 4 }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Total Bill Amount (৳)</label>
+                          <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Payment Amount (৳)</label>
                           <input
                             type="number"
                             step="any"
                             className="be-input"
                             value={editPurchaseModalData.amount}
                             onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, amount: e.target.value })}
-                            style={{ marginTop: 4, fontWeight: 700, color: "#991b1b" }}
+                            style={{ marginTop: 4, fontWeight: 700, color: "#059669" }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>From Bank / Method</label>
+                          <input
+                            type="text"
+                            className="be-input"
+                            placeholder="e.g. Islami Bank"
+                            value={editPurchaseModalData.from_bank}
+                            onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, from_bank: e.target.value })}
+                            style={{ marginTop: 4 }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>To Bank / Account</label>
+                          <input
+                            type="text"
+                            className="be-input"
+                            placeholder="e.g. City Bank"
+                            value={editPurchaseModalData.to_bank}
+                            onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, to_bank: e.target.value })}
+                            style={{ marginTop: 4 }}
                           />
                         </div>
                       </div>
-                    </>
-                  ) : (
-                    /* Payment Edit Fields */
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
-                      <div>
-                        <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Payment Amount (৳)</label>
-                        <input
-                          type="number"
-                          step="any"
-                          className="be-input"
-                          value={editPurchaseModalData.amount}
-                          onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, amount: e.target.value })}
-                          style={{ marginTop: 4, fontWeight: 700, color: "#059669" }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>From Bank / Method</label>
-                        <input
-                          type="text"
-                          className="be-input"
-                          placeholder="e.g. Islami Bank"
-                          value={editPurchaseModalData.from_bank}
-                          onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, from_bank: e.target.value })}
-                          style={{ marginTop: 4 }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>To Bank / Account</label>
-                        <input
-                          type="text"
-                          className="be-input"
-                          placeholder="e.g. City Bank"
-                          value={editPurchaseModalData.to_bank}
-                          onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, to_bank: e.target.value })}
-                          style={{ marginTop: 4 }}
-                        />
-                      </div>
+                    )}
+
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Note / Remarks</label>
+                      <input
+                        type="text"
+                        className="be-input"
+                        placeholder="Optional note"
+                        value={editPurchaseModalData.note}
+                        onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, note: e.target.value })}
+                        style={{ marginTop: 4 }}
+                      />
                     </div>
-                  )}
 
-                  <div style={{ marginBottom: 16 }}>
-                    <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>Note / Remarks</label>
-                    <input
-                      type="text"
-                      className="be-input"
-                      placeholder="Optional note"
-                      value={editPurchaseModalData.note}
-                      onChange={(e) => setEditPurchaseModalData({ ...editPurchaseModalData, note: e.target.value })}
-                      style={{ marginTop: 4 }}
-                    />
+                    {/* Edit Form Buttons */}
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, borderTop: "1px solid #e2e8f0", paddingTop: 14 }}>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingPurchaseModal(false)}
+                        className="be-btn"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSavePurchaseEditModal}
+                        disabled={purchaseModalBusy}
+                        className="be-btn be-btn-primary"
+                      >
+                        {purchaseModalBusy ? "Saving..." : "Save Changes"}
+                      </button>
+                    </div>
                   </div>
-
-                  {/* Edit Form Buttons */}
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, borderTop: "1px solid #e2e8f0", paddingTop: 14 }}>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingPurchaseModal(false)}
-                      className="be-btn"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSavePurchaseEditModal}
-                      disabled={purchaseModalBusy}
-                      className="be-btn be-btn-primary"
-                    >
-                      {purchaseModalBusy ? "Saving..." : "Save Changes"}
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
               </div>
             </div>
           </div>
@@ -4796,8 +5259,8 @@ export default function AllEntriesAuditPage() {
                     {editingEntry.source === "customer_bill"
                       ? "Customer Name *"
                       : editingEntry.source === "dealer_supplier"
-                      ? "Dealer / Supplier Name *"
-                      : "Paid To / Staff Name"}
+                        ? "Dealer / Supplier Name *"
+                        : "Paid To / Staff Name"}
                   </label>
                   <input
                     type="text"

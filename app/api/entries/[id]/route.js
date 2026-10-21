@@ -25,7 +25,9 @@ export async function DELETE(req, { params }) {
     if (!id) {
       return NextResponse.json({ error: "Entry ID is required" }, { status: 400 });
     }
-    await deleteEntry(id);
+    const { searchParams } = new URL(req.url);
+    const permanent = searchParams.get("permanent") === "true";
+    await deleteEntry(id, permanent);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });

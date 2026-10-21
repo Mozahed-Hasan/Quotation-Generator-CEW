@@ -14,6 +14,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   EditIcon,
+  BarChartIcon,
 } from "@/lib/icons";
 
 const CATEGORIES = [
@@ -146,7 +147,7 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export const isDepositCategory = (cat) => {
   if (!cat) return false;
   const c = String(cat).trim().toLowerCase();
-  return c === "bank deposit";
+  return c === "bank deposit" || c === "company bank deposit";
 };
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -269,6 +270,11 @@ export default function ExpensesPage() {
   const [catFilter, setCatFilter] = useState("all");
   const [search, setSearch] = useState("");
 
+  // Dedicated Duration Filter for Top KPI Cards (independent from bottom records table)
+  const [kpiMode, setKpiMode] = useState("all");
+  const [kpiRef, setKpiRef] = useState(today());
+  const kpiRange = useMemo(() => getRange(kpiMode, kpiRef), [kpiMode, kpiRef]);
+
   async function load() {
     try {
       const res = await fetch("/api/expenses");
@@ -388,7 +394,7 @@ export default function ExpensesPage() {
 
     setForm((prev) => {
       let nextPaidTo = prev.paid_to;
-      let nextTitle = "";
+      let nextTitle = prev.title;
       let nextMethod = prev.payment_method;
       let nextToBank = prev.to_bank;
 
@@ -414,8 +420,24 @@ export default function ExpensesPage() {
         nextToBank = "";
         nextPaidTo = "";
       } else {
-        nextTitle = "";
-        nextPaidTo = "";
+        // Normal category: keep the title that the user has already written!
+        // Only reset if switching from an auto-conditioned category whose title was generic
+        if (prev.category === "Salary" && (prev.title === "Staff Salary" || prev.title.startsWith("Salary -"))) {
+          nextTitle = "";
+          nextPaidTo = "";
+        } else if (
+          prev.category === "Supplier Payment (Raw Materials)" &&
+          (prev.title === "Supplier Payment" || prev.title.startsWith("Supplier Payment -"))
+        ) {
+          nextTitle = "";
+          nextPaidTo = "";
+        } else if (isDepositCategory(prev.category) && (prev.title === "Bank Deposit" || prev.title.startsWith("Bank Deposit -"))) {
+          nextTitle = "";
+          nextPaidTo = "";
+        } else {
+          nextTitle = prev.title;
+          nextPaidTo = prev.paid_to;
+        }
       }
 
       return {
@@ -655,7 +677,7 @@ export default function ExpensesPage() {
     setEditModalData((prev) => {
       if (!prev) return prev;
       let nextPaidTo = prev.paid_to;
-      let nextTitle = "";
+      let nextTitle = prev.title;
       let nextMethod = prev.payment_method;
       let nextToBank = prev.to_bank;
 
@@ -681,8 +703,23 @@ export default function ExpensesPage() {
         nextToBank = "";
         nextPaidTo = "";
       } else {
-        nextTitle = "";
-        nextPaidTo = "";
+        // Normal category: keep title and recipient unless switching from auto-conditioned generic title
+        if (prev.category === "Salary" && (prev.title === "Staff Salary" || prev.title.startsWith("Salary -"))) {
+          nextTitle = "";
+          nextPaidTo = "";
+        } else if (
+          prev.category === "Supplier Payment (Raw Materials)" &&
+          (prev.title === "Supplier Payment" || prev.title.startsWith("Supplier Payment -"))
+        ) {
+          nextTitle = "";
+          nextPaidTo = "";
+        } else if (isDepositCategory(prev.category) && (prev.title === "Bank Deposit" || prev.title.startsWith("Bank Deposit -"))) {
+          nextTitle = "";
+          nextPaidTo = "";
+        } else {
+          nextTitle = prev.title;
+          nextPaidTo = prev.paid_to;
+        }
       }
 
       return {
@@ -868,6 +905,129 @@ export default function ExpensesPage() {
   // Primary Total Expense reflects ONLY actual expenses (Eliminating double counting!)
   const total = totalActualExpense;
 
+  // Dedicated calculations for Top KPI Cards (filtered strictly by kpiRange)
+  const { kpiActualExpense, kpiDeposits, kpiBankExpense, kpiCashExpense } = useMemo(() => {
+    let actualSum = 0;
+    let depSum = 0;
+    let bankSum = 0;
+    let cashSum = 0;
+
+    expenses.forEach((x) => {
+      const d = x.expense_date ? String(x.expense_date).slice(0, 10) : "";
+      if (kpiMode !== "all" && (d < kpiRange.from || d > kpiRange.to)) return;
+
+      const amt = Number(x.amount || 0);
+      if (isDepositCategory(x.category)) {
+        depSum += amt;
+      } else {
+        actualSum += amt;
+        const isBank = x.payment_method === "Bank" || (Boolean(x.from_bank) && x.payment_method !== "Cash");
+        if (isBank) {
+          bankSum += amt;
+        } else {
+          cashSum += amt;
+        }
+      }
+    });
+
+    return {
+      kpiActualExpense: actualSum,
+      kpiDeposits: depSum,
+      kpiBankExpense: bankSum,
+      kpiCashExpense: cashSum,
+    };
+  }, [expenses, kpiMode, kpiRange]);
+
+  const kpiCashSummary = useMemo(() => {
+    let allTimeSalesCash = 0;
+    let prevSalesCash = 0;
+    let periodSalesCash = 0;
+    let allTimeTotalSales = 0;
+    let periodTotalSales = 0;
+    let allTimeSalesDue = 0;
+    let periodSalesDue = 0;
+
+    (salesBills || []).forEach((b) => {
+      const tb = Number(b.total_bill || 0);
+      const p = Number(b.client_payment || 0);
+      const da = Number(b.due_advance || 0);
+      const due = da > 0 ? da : 0;
+      const d = b.bill_date ? String(b.bill_date).slice(0, 10) : "";
+
+      allTimeTotalSales += tb;
+      allTimeSalesCash += p;
+      allTimeSalesDue += due;
+
+      if (kpiMode !== "all" && d && d < kpiRange.from) {
+        prevSalesCash += p;
+      }
+
+      if (kpiMode === "all" || (d && d >= kpiRange.from && d <= kpiRange.to)) {
+        periodTotalSales += tb;
+        periodSalesCash += p;
+        periodSalesDue += due;
+      }
+    });
+
+    let allTimeCashExpense = 0;
+    let prevCashExpense = 0;
+    let periodCashExpense = 0;
+    let allTimeBankDeposits = 0;
+    let prevBankDeposits = 0;
+    let periodBankDeposits = 0;
+
+    expenses.forEach((x) => {
+      const amt = Number(x.amount || 0);
+      const isDep = isDepositCategory(x.category);
+      const isCash = !x.payment_method || x.payment_method === "Cash";
+      const d = x.expense_date ? String(x.expense_date).slice(0, 10) : "";
+      const isPrior = kpiMode !== "all" && d && d < kpiRange.from;
+      const inKpi = kpiMode === "all" || (d && d >= kpiRange.from && d <= kpiRange.to);
+
+      if (isDep) {
+        allTimeBankDeposits += amt;
+        if (isPrior) prevBankDeposits += amt;
+        if (inKpi) periodBankDeposits += amt;
+      } else if (isCash) {
+        allTimeCashExpense += amt;
+        if (isPrior) prevCashExpense += amt;
+        if (inKpi) periodCashExpense += amt;
+      }
+    });
+
+    const allTimeCashOutflow = allTimeCashExpense + allTimeBankDeposits;
+    const allTimeNetCashInHand = allTimeSalesCash - allTimeCashOutflow;
+
+    const prevCashOutflow = prevCashExpense + prevBankDeposits;
+    const prevCashInHand = prevSalesCash - prevCashOutflow;
+
+    const periodCashOutflow = periodCashExpense + periodBankDeposits;
+    const periodNetCash = periodSalesCash - periodCashOutflow;
+
+    const totalClosingCashInHand = kpiMode === "all" ? allTimeNetCashInHand : (prevCashInHand + periodNetCash);
+
+    return {
+      allTimeSalesCash,
+      prevSalesCash,
+      periodSalesCash,
+      allTimeTotalSales,
+      periodTotalSales,
+      allTimeSalesDue,
+      periodSalesDue,
+
+      allTimeCashOutflow,
+      allTimeNetCashInHand,
+
+      prevCashOutflow,
+      prevCashInHand,
+
+      periodCashOutflow,
+      periodNetCash,
+
+      totalClosingCashInHand,
+    };
+  }, [salesBills, expenses, kpiMode, kpiRange]);
+
   // Bank Account Tracking & Balances across all-time and current period
   const bankAccountSummary = useMemo(() => {
     let allTimeDeposits = 0;
@@ -1034,49 +1194,86 @@ export default function ExpensesPage() {
     if (catFilter === "Salary") {
       return exportSalaryExcel();
     }
+
+    const actualExpenses = [...filtered]
+      .filter((x) => !isDepositCategory(x.category))
+      .sort((a, b) => a.expense_date.localeCompare(b.expense_date));
+
+    const fundTransfers = [...filtered]
+      .filter((x) => isDepositCategory(x.category))
+      .sort((a, b) => a.expense_date.localeCompare(b.expense_date));
+
+    const actualExpenseTotal = actualExpenses.reduce((s, x) => s + Number(x.amount || 0), 0);
+    const fundTransferTotal = fundTransfers.reduce((s, x) => s + Number(x.amount || 0), 0);
+
+    let cashExpenseTotal = 0;
+    let bankExpenseTotal = 0;
+    actualExpenses.forEach((x) => {
+      const amt = Number(x.amount || 0);
+      const isCash = !x.payment_method || String(x.payment_method).trim().toLowerCase() === "cash";
+      if (isCash) {
+        cashExpenseTotal += amt;
+      } else {
+        bankExpenseTotal += amt;
+      }
+    });
+
+    const wb = XLSX.utils.book_new();
+
+    // Excel rows matching user's exact specification & screenshot layout
     const rows = [
       ["CHOWDHURY ENGINEERING WORKS"],
-      [`EXPENSE & FUND MOVEMENT REPORT – ${range.label}`],
+      [`EXPENSE & FUND TRANSFER REPORT – ${range.label}`],
       [],
-      ["SL", "Date", "Title", "Category", "Paid To", "Phone No.", "Method", "From Bank / Channel", "To Bank / A/C", "Amount (BDT)", "Classification", "Ledger Synced", "Note"],
-      ...[...filtered]
-        .sort((a, b) => a.expense_date.localeCompare(b.expense_date))
-        .map((x, i) => [
-          i + 1,
-          x.expense_date,
-          x.title,
-          x.category,
-          x.paid_to || "",
-          x.phone || "",
-          x.payment_method || "",
-          x.from_bank || "",
-          x.to_bank || "",
-          x.amount,
-          isDepositCategory(x.category) ? "Bank Deposit (Fund Transfer)" : "Actual Business Expense",
-          x.linked_client ? "Yes" : "No",
-          x.note || "",
-        ]),
+      ["SECTION 1: ACTUAL BUSINESS EXPENSES"],
+      ["Date", "Title", "Category", "Method", "Paid To", "Amount (BDT)"],
+      ...(actualExpenses.length > 0
+        ? actualExpenses.map((x) => [
+            x.expense_date,
+            x.title,
+            x.category,
+            x.payment_method || "Cash",
+            x.paid_to || "-",
+            Number(x.amount || 0),
+          ])
+        : [["-", "No actual expenses for this period", "-", "-", "-", 0]]),
+      ["TOTAL ACTUAL EXPENSE", "", "", "", "", actualExpenseTotal],
       [],
-      ["SUMMARY (EXCLUDES BANK DEPOSITS FROM EXPENSE TO PREVENT DOUBLE COUNTING)"],
-      ["Actual Business Expense Total (BDT)", "", "", "", "", "", "", "", "", totalActualExpense, "", "", ""],
-      ["Bank Deposits / Fund Movement (BDT)", "", "", "", "", "", "", "", "", totalDeposits, "", "", ""],
+      ["SECTION 2: FUND TRANSFER (BANK DEPOSITS)"],
+      ["Date", "Title", "Category", "Method", "Paid To", "Amount (BDT)"],
+      ...(fundTransfers.length > 0
+        ? fundTransfers.map((x) => [
+            x.expense_date,
+            x.title,
+            x.category,
+            x.payment_method || "Cash",
+            x.paid_to || "-",
+            Number(x.amount || 0),
+          ])
+        : [["-", "No fund transfer records for this period", "-", "-", "-", 0]]),
+      ["TOTAL FUND TRANSFER", "", "", "", "", fundTransferTotal],
+      [],
+      ["SUMMARY"],
+      ["Total Actual Business Expense (BDT)", "", "", "", "", actualExpenseTotal],
+      ["Total Fund Transfer / Bank Deposits (BDT)", "", "", "", "", fundTransferTotal],
+      ["Grand Total Outflow (BDT)", "", "", "", "", actualExpenseTotal + fundTransferTotal],
+      [],
+      [],
+      ["", "", "", "", "Expense From Cash Drawer", cashExpenseTotal],
+      ["", "", "", "", "Expense From Bank Account", bankExpenseTotal],
+      ["", "", "", "", "Actual Business Expense Total (BDT)", actualExpenseTotal],
     ];
+
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws["!cols"] = [
-      { wch: 6 },
-      { wch: 12 },
-      { wch: 28 },
-      { wch: 16 },
-      { wch: 22 },
-      { wch: 16 },
-      { wch: 12 },
-      { wch: 20 },
-      { wch: 20 },
-      { wch: 16 },
-      { wch: 14 },
-      { wch: 30 },
+      { wch: 14 }, // Date
+      { wch: 30 }, // Title
+      { wch: 28 }, // Category
+      { wch: 12 }, // Method
+      { wch: 36 }, // Paid To / Summary label
+      { wch: 18 }, // Amount (BDT)
     ];
-    const wb = XLSX.utils.book_new();
+
     XLSX.utils.book_append_sheet(wb, ws, "Expenses");
     XLSX.writeFile(wb, `CEW_Expenses_${mode}_${range.label.replace(/[^a-zA-Z0-9]+/g, "_")}.xlsx`);
   }
@@ -1521,15 +1718,99 @@ export default function ExpensesPage() {
         </nav>
       </header>
 
+      {/* Top Cards Filter Bar */}
+      <div className="ex-kpi-filter-bar">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span className="ex-kpi-filter-label">
+            <BarChartIcon size={15} style={{ color: "#2563eb" }} /> Overview Cards Filter:
+          </span>
+          <div className="be-duration-group">
+            {MODES.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                className={`be-duration-btn ${kpiMode === m.key ? "active" : ""}`}
+                onClick={() => {
+                  setKpiMode(m.key);
+                  if (m.key === "week") {
+                    setKpiRef(weekStart(kpiRef || today()));
+                  }
+                }}
+              >
+                {m.key === "all" ? "All Time" : m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {kpiMode !== "all" && (
+          <div className="ex-nav-group">
+            <button
+              type="button"
+              className="ex-arrow"
+              onClick={() => setKpiRef(shiftRef(kpiMode, kpiRef, -1))}
+              aria-label="Previous"
+              title="Previous period"
+            >
+              <ChevronLeftIcon size={12} />
+            </button>
+            <span
+              className="ex-range-label"
+              style={{
+                fontSize: "0.85rem",
+                fontWeight: 700,
+                color: "#1e3a8a",
+                background: "#f8fafc",
+                padding: "5px 12px",
+                borderRadius: 7,
+                border: "1px solid #e2e8f0",
+                minWidth: 160,
+                textAlign: "center",
+              }}
+            >
+              {kpiRange.label}
+            </span>
+            <button
+              type="button"
+              className="ex-arrow"
+              onClick={() => setKpiRef(shiftRef(kpiMode, kpiRef, 1))}
+              aria-label="Next"
+              title="Next period"
+            >
+              <ChevronRightIcon size={12} />
+            </button>
+            <button
+              type="button"
+              className="be-nav-btn"
+              style={{ fontSize: "0.76rem", padding: "4px 10px" }}
+              onClick={() => {
+                if (kpiMode === "week") {
+                  setKpiRef(weekStart(today()));
+                } else {
+                  setKpiRef(today());
+                }
+              }}
+            >
+              Current
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* KPI */}
       <section className="be-stats-grid">
         <div className="be-stat-card">
-          <span className="label">Actual Business Expense • {range.label}</span>
-          <span className="val">৳ {fmt(totalActualExpense)}</span>
+          <span className="label">Business Expense • {kpiRange.label}</span>
+          <span className="val">৳ {fmt(kpiActualExpense)}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4, fontSize: "0.76rem", fontWeight: 600, color: "#64748b" }}>
+            <span>Bank: <span style={{ color: "#0f172a", fontWeight: 700 }}>৳ {fmt(kpiBankExpense)}</span></span>
+            <span style={{ color: "#cbd5e1" }}>•</span>
+            <span>Cash: <span style={{ color: "#0f172a", fontWeight: 700 }}>৳ {fmt(kpiCashExpense)}</span></span>
+          </div>
         </div>
         <div className="be-stat-card deposit">
-          <span className="label">Bank Deposits • {range.label}</span>
-          <span className="val">৳ {fmt(totalDeposits)}</span>
+          <span className="label">Bank Deposits • {kpiRange.label}</span>
+          <span className="val">৳ {fmt(kpiDeposits)}</span>
         </div>
         <div className="be-stat-card bank">
           <span className="label">Live Bank Balance (Net)</span>
@@ -1537,68 +1818,34 @@ export default function ExpensesPage() {
         </div>
         <div className="be-stat-card inflow" style={{ background: "#eff6ff", borderColor: "#bfdbfe" }}>
           <span className="label" style={{ color: "#1e40af" }}>
-            Total Cash Inflow • {range.label}
+            Cash Inflow • {kpiRange.label}
           </span>
           <span className="val" style={{ color: "#1d4ed8" }}>
-            ৳ {fmt(mode === "all" ? cashInHandSummary.allTimeSalesCash : cashInHandSummary.periodSalesCash)}
+            ৳ {fmt(kpiMode === "all" ? kpiCashSummary.allTimeSalesCash : kpiCashSummary.periodSalesCash)}
           </span>
-          <div style={{ fontSize: "0.72rem", color: "#475569", marginTop: 2, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 4 }}>
-            <span>Sales Billed: <strong style={{ color: "#0284c7" }}>৳ {fmt(mode === "all" ? cashInHandSummary.allTimeTotalSales : cashInHandSummary.periodTotalSales)}</strong></span>
-            <span>Due: <strong style={{ color: (mode === "all" ? cashInHandSummary.allTimeSalesDue : cashInHandSummary.periodSalesDue) > 0 ? "#b91c1c" : "#64748b" }}>৳ {fmt(mode === "all" ? cashInHandSummary.allTimeSalesDue : cashInHandSummary.periodSalesDue)}</strong></span>
-          </div>
         </div>
         <div className="be-stat-card cash" style={{ background: "#f0fdf4", borderColor: "#bbf7d0" }}>
           <span className="label" style={{ color: "#166534" }}>
-            Total Cash in Hand
+            Cash in Hand • {kpiRange.label}
           </span>
-          <span className="val" style={{ color: cashInHandSummary.allTimeNetCashInHand >= 0 ? "#15803d" : "#b91c1c" }}>
-            ৳ {fmt(cashInHandSummary.allTimeNetCashInHand)}
+          <span className="val" style={{ color: (kpiMode === "all" ? kpiCashSummary.allTimeNetCashInHand : kpiCashSummary.totalClosingCashInHand) >= 0 ? "#15803d" : "#b91c1c" }}>
+            ৳ {fmt(kpiMode === "all" ? kpiCashSummary.allTimeNetCashInHand : kpiCashSummary.totalClosingCashInHand)}
           </span>
-          <div style={{ fontSize: "0.72rem", color: "#475569", marginTop: 2, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 4 }}>
-            <span>Inflow: <strong style={{ color: "#166534" }}>+৳ {fmt(mode === "all" ? cashInHandSummary.allTimeSalesCash : cashInHandSummary.periodSalesCash)}</strong></span>
-            <span>Outflow: <strong style={{ color: "#b91c1c" }}>-৳ {fmt(mode === "all" ? cashInHandSummary.allTimeCashOutflow : cashInHandSummary.periodCashOutflow)}</strong></span>
-          </div>
+          {kpiMode !== "all" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, fontSize: "0.75rem", fontWeight: 600, color: "#64748b", flexWrap: "wrap" }}>
+              <span>Prev: <span style={{ color: "#0f172a", fontWeight: 700 }}>৳ {fmt(kpiCashSummary.prevCashInHand)}</span></span>
+              <span style={{ color: "#cbd5e1" }}>•</span>
+              <span>
+                {kpiMode === "daily" ? "Today" : "Period"}:{" "}
+                <span style={{ color: kpiCashSummary.periodNetCash >= 0 ? "#15803d" : "#b91c1c", fontWeight: 700 }}>
+                  {kpiCashSummary.periodNetCash >= 0 ? "+" : "-"}৳ {fmt(Math.abs(kpiCashSummary.periodNetCash))}
+                </span>
+              </span>
+            </div>
+          )}
         </div>
       </section>
 
-      {/* Bank Account Tracker & Fund Flow Widget */}
-      <section className="ex-bank-widget">
-        <div className="ex-bank-widget-header">
-          <div className="ex-bank-widget-title">
-            <span style={{ fontSize: "1.1rem" }}>🏦</span> Bank Account &amp; Fund Movement Ledger
-          </div>
-          <div style={{ fontSize: "0.82rem", color: "#475569", display: "flex", gap: 14, flexWrap: "wrap" }}>
-            <span>Total Deposited: <strong style={{ color: "#166534" }}>৳ {fmt(bankAccountSummary.allTimeDeposits)}</strong></span>
-            <span>Spent from Bank: <strong style={{ color: "#b91c1c" }}>৳ {fmt(bankAccountSummary.allTimeBankSpent)}</strong></span>
-            <span>Net Live Balance: <strong style={{ color: "#1d4ed8" }}>৳ {fmt(bankAccountSummary.netBalance)}</strong></span>
-            <span style={{ borderLeft: "1px solid #cbd5e1", paddingLeft: 10 }}>
-              Cash in Hand: <strong style={{ color: cashInHandSummary.allTimeNetCashInHand >= 0 ? "#166534" : "#b91c1c" }}>৳ {fmt(cashInHandSummary.allTimeNetCashInHand)}</strong>
-            </span>
-          </div>
-        </div>
-        {bankAccountSummary.banks.length > 0 ? (
-          <div className="ex-bank-pill-list">
-            {bankAccountSummary.banks.map((b) => (
-              <div className="ex-bank-pill-item" key={b.name}>
-                <div style={{ fontWeight: 700, color: "#1e293b", display: "flex", justifyContent: "space-between" }}>
-                  <span>{b.name}</span>
-                  <span style={{ color: b.balance >= 0 ? "#15803d" : "#b91c1c", fontWeight: 800 }}>
-                    ৳ {fmt(b.balance)}
-                  </span>
-                </div>
-                <div style={{ fontSize: "0.72rem", color: "#64748b", display: "flex", justifyContent: "space-between" }}>
-                  <span>Deposits: ৳ {fmt(b.deposits)}</span>
-                  <span>Spent: ৳ {fmt(b.spent)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
-            No bank transactions or deposits recorded yet. Deposits to bank will appear here automatically with their live balance.
-          </div>
-        )}
-      </section>
 
       {/* Entry form */}
       <section className="be-card">
