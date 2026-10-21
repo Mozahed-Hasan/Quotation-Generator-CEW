@@ -394,7 +394,7 @@ export default function ExpensesPage() {
 
     setForm((prev) => {
       let nextPaidTo = prev.paid_to;
-      let nextTitle = prev.title;
+      let nextTitle = "";
       let nextMethod = prev.payment_method;
       let nextToBank = prev.to_bank;
 
@@ -420,24 +420,8 @@ export default function ExpensesPage() {
         nextToBank = "";
         nextPaidTo = "";
       } else {
-        // Normal category: keep the title that the user has already written!
-        // Only reset if switching from an auto-conditioned category whose title was generic
-        if (prev.category === "Salary" && (prev.title === "Staff Salary" || prev.title.startsWith("Salary -"))) {
-          nextTitle = "";
-          nextPaidTo = "";
-        } else if (
-          prev.category === "Supplier Payment (Raw Materials)" &&
-          (prev.title === "Supplier Payment" || prev.title.startsWith("Supplier Payment -"))
-        ) {
-          nextTitle = "";
-          nextPaidTo = "";
-        } else if (isDepositCategory(prev.category) && (prev.title === "Bank Deposit" || prev.title.startsWith("Bank Deposit -"))) {
-          nextTitle = "";
-          nextPaidTo = "";
-        } else {
-          nextTitle = prev.title;
-          nextPaidTo = prev.paid_to;
-        }
+        nextTitle = "";
+        nextPaidTo = "";
       }
 
       return {
@@ -677,7 +661,7 @@ export default function ExpensesPage() {
     setEditModalData((prev) => {
       if (!prev) return prev;
       let nextPaidTo = prev.paid_to;
-      let nextTitle = prev.title;
+      let nextTitle = "";
       let nextMethod = prev.payment_method;
       let nextToBank = prev.to_bank;
 
@@ -703,23 +687,8 @@ export default function ExpensesPage() {
         nextToBank = "";
         nextPaidTo = "";
       } else {
-        // Normal category: keep title and recipient unless switching from auto-conditioned generic title
-        if (prev.category === "Salary" && (prev.title === "Staff Salary" || prev.title.startsWith("Salary -"))) {
-          nextTitle = "";
-          nextPaidTo = "";
-        } else if (
-          prev.category === "Supplier Payment (Raw Materials)" &&
-          (prev.title === "Supplier Payment" || prev.title.startsWith("Supplier Payment -"))
-        ) {
-          nextTitle = "";
-          nextPaidTo = "";
-        } else if (isDepositCategory(prev.category) && (prev.title === "Bank Deposit" || prev.title.startsWith("Bank Deposit -"))) {
-          nextTitle = "";
-          nextPaidTo = "";
-        } else {
-          nextTitle = prev.title;
-          nextPaidTo = prev.paid_to;
-        }
+        nextTitle = "";
+        nextPaidTo = "";
       }
 
       return {
