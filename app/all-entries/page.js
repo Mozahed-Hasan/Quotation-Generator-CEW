@@ -530,6 +530,18 @@ export default function AllEntriesAuditPage() {
       totalAmount += Number(e.amount || 0);
     });
 
+    // Counts scoped to current active module for the status buttons
+    let statusScopeApproved = 0;
+    let statusScopePending = 0;
+    entries.forEach((e) => {
+      if (moduleFilter === "customer_bill" && e.source !== "customer_bill") return;
+      if (moduleFilter === "expense" && e.source !== "expense") return;
+      if (moduleFilter === "dealer_supplier" && e.source !== "dealer_supplier" && !e.isSynced) return;
+
+      if ((e.status || "pending") === "approved") statusScopeApproved++;
+      else statusScopePending++;
+    });
+
     const moduleCounts = {
       all: entries.length,
       customer_bill: entries.filter((e) => e.source === "customer_bill").length,
@@ -542,10 +554,12 @@ export default function AllEntriesAuditPage() {
       total: entries.length,
       approved: approvedCount,
       pending: pendingCount,
+      statusScopeApproved,
+      statusScopePending,
       totalAmount,
       moduleCounts,
     };
-  }, [entries, recycleBin]);
+  }, [entries, recycleBin, moduleFilter]);
 
   // Filtered Recycle Bin items
   const filteredRecycleBin = useMemo(() => {
@@ -1899,7 +1913,7 @@ export default function AllEntriesAuditPage() {
                 onClick={() => setStatusFilter("pending")}
                 style={statusFilter === "pending" ? { background: "#f59e0b", borderColor: "#f59e0b" } : {}}
               >
-                Pending ({metrics.pending})
+                Pending ({metrics.statusScopePending})
               </button>
               <button
                 type="button"
@@ -1907,7 +1921,7 @@ export default function AllEntriesAuditPage() {
                 onClick={() => setStatusFilter("approved")}
                 style={statusFilter === "approved" ? { background: "#10b981", borderColor: "#10b981" } : {}}
               >
-                Approved ({metrics.approved})
+                Approved ({metrics.statusScopeApproved})
               </button>
             </div>
           )}
@@ -2776,15 +2790,17 @@ export default function AllEntriesAuditPage() {
                             {isDep && <span className="ex-deposit-sub">Deposit (Not Expense)</span>}
                           </td>
                           <td style={{ verticalAlign: "middle" }}>
-                            <span style={{ fontWeight: 600, color: "#1e293b" }}>{item.paidTo || item.paid_to || item.party || "—"}</span>
+                            <div style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 600, color: "#1e293b" }}>{item.paidTo || item.paid_to || item.party || "—"}</span>
+                              {Boolean(item.isSynced || item.linkedClient || item.linkedEntryId) && (
+                                <span className="ex-ledger-tick" title="Recorded as payment in Purchase ledger">
+                                  <CheckIcon size={10} />
+                                </span>
+                              )}
+                            </div>
                             {item.phone && (
                               <span style={{ display: "block", fontSize: "0.75rem", color: "#64748b", marginTop: 2 }}>
                                 📞 {item.phone}
-                              </span>
-                            )}
-                            {Boolean(item.isSynced || item.linkedClient || item.linkedEntryId) && (
-                              <span className="ex-ledger-badge" title="Recorded as payment in Purchase ledger" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-                                <CheckIcon size={11} /> Ledger
                               </span>
                             )}
                           </td>

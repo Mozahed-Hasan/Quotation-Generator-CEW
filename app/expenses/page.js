@@ -2,7 +2,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
+import {
+  batchTranslateTable,
+  toBengaliDigits,
+  toBengaliCurrency,
+  translatePeriodLabel,
+  applyExcelStyles,
+  BN_MONTHS,
+  BN_DAYS,
+  BN_TERMS,
+} from "@/lib/translator";
 import {
   HomeIcon,
   UploadIcon,
@@ -247,6 +257,15 @@ export default function ExpensesPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importPreview, setImportPreview] = useState(null);
   const [importBusy, setImportBusy] = useState(false);
+
+  // Excel Language Modal States
+  const [excelLangModal, setExcelLangModal] = useState({
+    isOpen: false,
+    type: "expenses", // 'expenses' | 'salary'
+    title: "Download Expense Report",
+  });
+  const [translatingExcel, setTranslatingExcel] = useState(false);
+  const [translatingProgress, setTranslatingProgress] = useState(0);
   const [importErr, setImportErr] = useState("");
   const [importSyncToLedger, setImportSyncToLedger] = useState(true);
   const [dragActive, setDragActive] = useState(false);
@@ -265,15 +284,18 @@ export default function ExpensesPage() {
   const modalFromBankRef = useRef(null);
   const modalToBankRef = useRef(null);
 
+  // Synchronized Duration Filter States (shared between Top KPI Overview & Bottom Expense Table): 'day' | 'week' | 'month' | 'year' | 'all'
   const [mode, setMode] = useState("day");
   const [ref, setRef] = useState(today());
+  const range = useMemo(() => getRange(mode, ref), [mode, ref]);
   const [catFilter, setCatFilter] = useState("all");
   const [search, setSearch] = useState("");
 
-  // Dedicated Duration Filter for Top KPI Cards (independent from bottom records table)
-  const [kpiMode, setKpiMode] = useState("all");
-  const [kpiRef, setKpiRef] = useState(today());
-  const kpiRange = useMemo(() => getRange(kpiMode, kpiRef), [kpiMode, kpiRef]);
+  const kpiMode = mode;
+  const kpiRef = ref;
+  const kpiRange = range;
+  const setKpiMode = setMode;
+  const setKpiRef = setRef;
 
   async function load() {
     try {
@@ -394,34 +416,36 @@ export default function ExpensesPage() {
 
     setForm((prev) => {
       let nextPaidTo = prev.paid_to;
-      let nextTitle = "";
+      let nextTitle = prev.title;
       let nextMethod = prev.payment_method;
       let nextToBank = prev.to_bank;
 
-      if (isStaff) {
-        const isPrevStaff = allStaff.some(
-          (s) => s.toLowerCase() === (prev.paid_to || "").trim().toLowerCase()
-        );
-        if (!isPrevStaff) {
-          nextPaidTo = "";
-        }
-        nextTitle = nextPaidTo ? `Salary - ${nextPaidTo}` : `Staff Salary`;
+      if (isDeposit) {
+        nextTitle = nextPaidTo?.trim() ? `Bank Deposit - ${nextPaidTo.trim()}` : "Bank Deposit";
+      } else if (isStaff) {
+        nextTitle = nextPaidTo?.trim() ? `Salary - ${nextPaidTo.trim()}` : "Staff Salary";
       } else if (isSupplier) {
-        const isPrevClient = clients.some(
-          (c) => (c.name || "").toLowerCase() === (prev.paid_to || "").trim().toLowerCase()
-        );
-        if (!isPrevClient) {
-          nextPaidTo = "";
-        }
-        nextTitle = nextPaidTo ? `Supplier Payment - ${nextPaidTo}` : "Supplier Payment";
-      } else if (isDeposit) {
-        nextTitle = "Bank Deposit";
-        nextMethod = "Cash"; // Cash from drawer deposited to bank
-        nextToBank = "";
-        nextPaidTo = "";
+        nextTitle = nextPaidTo?.trim() ? `Supplier Payment - ${nextPaidTo.trim()}` : "Supplier Payment";
       } else {
-        nextTitle = "";
-        nextPaidTo = "";
+        // If switching from auto-title categories to general categories and title was auto-generated
+        if (
+          prev.category === "Bank Deposit" ||
+          isDepositCategory(prev.category) ||
+          prev.category === "Salary" ||
+          prev.category === "Supplier Payment (Raw Materials)"
+        ) {
+          if (
+            !nextTitle ||
+            nextTitle === "Bank Deposit" ||
+            nextTitle.startsWith("Bank Deposit -") ||
+            nextTitle === "Staff Salary" ||
+            nextTitle.startsWith("Salary -") ||
+            nextTitle === "Supplier Payment" ||
+            nextTitle.startsWith("Supplier Payment -")
+          ) {
+            nextTitle = "";
+          }
+        }
       }
 
       return {
@@ -661,34 +685,35 @@ export default function ExpensesPage() {
     setEditModalData((prev) => {
       if (!prev) return prev;
       let nextPaidTo = prev.paid_to;
-      let nextTitle = "";
+      let nextTitle = prev.title;
       let nextMethod = prev.payment_method;
       let nextToBank = prev.to_bank;
 
-      if (isStaff) {
-        const isPrevStaff = allStaff.some(
-          (s) => s.toLowerCase() === (prev.paid_to || "").trim().toLowerCase()
-        );
-        if (!isPrevStaff) {
-          nextPaidTo = "";
-        }
-        nextTitle = nextPaidTo ? `Salary - ${nextPaidTo}` : `Staff Salary`;
+      if (isDeposit) {
+        nextTitle = nextPaidTo?.trim() ? `Bank Deposit - ${nextPaidTo.trim()}` : "Bank Deposit";
+      } else if (isStaff) {
+        nextTitle = nextPaidTo?.trim() ? `Salary - ${nextPaidTo.trim()}` : "Staff Salary";
       } else if (isSupplier) {
-        const isPrevClient = clients.some(
-          (c) => (c.name || "").toLowerCase() === (prev.paid_to || "").trim().toLowerCase()
-        );
-        if (!isPrevClient) {
-          nextPaidTo = "";
-        }
-        nextTitle = nextPaidTo ? `Supplier Payment - ${nextPaidTo}` : "Supplier Payment";
-      } else if (isDeposit) {
-        nextTitle = "Bank Deposit";
-        nextMethod = "Cash";
-        nextToBank = "";
-        nextPaidTo = "";
+        nextTitle = nextPaidTo?.trim() ? `Supplier Payment - ${nextPaidTo.trim()}` : "Supplier Payment";
       } else {
-        nextTitle = "";
-        nextPaidTo = "";
+        if (
+          prev.category === "Bank Deposit" ||
+          isDepositCategory(prev.category) ||
+          prev.category === "Salary" ||
+          prev.category === "Supplier Payment (Raw Materials)"
+        ) {
+          if (
+            !nextTitle ||
+            nextTitle === "Bank Deposit" ||
+            nextTitle.startsWith("Bank Deposit -") ||
+            nextTitle === "Staff Salary" ||
+            nextTitle.startsWith("Salary -") ||
+            nextTitle === "Supplier Payment" ||
+            nextTitle.startsWith("Supplier Payment -")
+          ) {
+            nextTitle = "";
+          }
+        }
       }
 
       return {
@@ -830,8 +855,6 @@ export default function ExpensesPage() {
       setModalBusy(false);
     }
   }
-
-  const range = useMemo(() => getRange(mode, ref), [mode, ref]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1159,96 +1182,152 @@ export default function ExpensesPage() {
     };
   }, [salesBills, expenses, range]);
 
-  function exportExcel() {
-    if (catFilter === "Salary") {
-      return exportSalaryExcel();
+  function openExcelLanguageModal(type = "expenses", title = "Download Expense Report") {
+    if (type === "expenses" && catFilter === "Salary") {
+      type = "salary";
+      title = "Download Salary Report";
+    }
+    setExcelLangModal({
+      isOpen: true,
+      type,
+      title: title || (type === "salary" ? "Download Salary Report" : "Download Expense Report"),
+    });
+  }
+
+  async function executeExportExcel(lang = "en") {
+    const isBn = lang === "bn";
+    if (isBn) {
+      setTranslatingExcel(true);
+      setTranslatingProgress(5);
     }
 
-    const actualExpenses = [...filtered]
-      .filter((x) => !isDepositCategory(x.category))
-      .sort((a, b) => a.expense_date.localeCompare(b.expense_date));
+    try {
+      const actualExpenses = [...filtered]
+        .filter((x) => !isDepositCategory(x.category))
+        .sort((a, b) => a.expense_date.localeCompare(b.expense_date));
 
-    const fundTransfers = [...filtered]
-      .filter((x) => isDepositCategory(x.category))
-      .sort((a, b) => a.expense_date.localeCompare(b.expense_date));
+      const fundTransfers = [...filtered]
+        .filter((x) => isDepositCategory(x.category))
+        .sort((a, b) => a.expense_date.localeCompare(b.expense_date));
 
-    const actualExpenseTotal = actualExpenses.reduce((s, x) => s + Number(x.amount || 0), 0);
-    const fundTransferTotal = fundTransfers.reduce((s, x) => s + Number(x.amount || 0), 0);
+      const actualExpenseTotal = actualExpenses.reduce((s, x) => s + Number(x.amount || 0), 0);
+      const fundTransferTotal = fundTransfers.reduce((s, x) => s + Number(x.amount || 0), 0);
 
-    let cashExpenseTotal = 0;
-    let bankExpenseTotal = 0;
-    actualExpenses.forEach((x) => {
-      const amt = Number(x.amount || 0);
-      const isCash = !x.payment_method || String(x.payment_method).trim().toLowerCase() === "cash";
-      if (isCash) {
-        cashExpenseTotal += amt;
-      } else {
-        bankExpenseTotal += amt;
-      }
-    });
+      let cashExpenseTotal = 0;
+      let bankExpenseTotal = 0;
+      actualExpenses.forEach((x) => {
+        const amt = Number(x.amount || 0);
+        const isCash = !x.payment_method || String(x.payment_method).trim().toLowerCase() === "cash";
+        if (isCash) {
+          cashExpenseTotal += amt;
+        } else {
+          bankExpenseTotal += amt;
+        }
+      });
 
-    const wb = XLSX.utils.book_new();
+      const headerCompany = isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS";
+      const periodLabel = isBn ? translatePeriodLabel(range.label) : range.label;
+      const reportTitle = isBn
+        ? `খরচ ও ফান্ড ট্রান্সফার রিপোর্ট – ${periodLabel}`
+        : `EXPENSE & FUND TRANSFER REPORT – ${range.label}`;
+      const sec1Title = isBn ? "বিভাগ ১: প্রকৃত ব্যবসায়িক খরচসমূহ" : "SECTION 1: ACTUAL BUSINESS EXPENSES";
+      const sec2Title = isBn ? "বিভাগ ২: ফান্ড ট্রান্সফার (ব্যাংক জমা)" : "SECTION 2: FUND TRANSFER (BANK DEPOSITS)";
+      const colHeaders = isBn
+        ? ["তারিখ", "বিবরণ / শিরোনাম", "ক্যাটাগরি", "পদ্ধতি", "প্রাপক / প্রদানকারী", "পরিমাণ (টাকা)"]
+        : ["Date", "Title", "Category", "Method", "Paid To", "Amount (BDT)"];
 
-    // Excel rows matching user's exact specification & screenshot layout
-    const rows = [
-      ["CHOWDHURY ENGINEERING WORKS"],
-      [`EXPENSE & FUND TRANSFER REPORT – ${range.label}`],
-      [],
-      ["SECTION 1: ACTUAL BUSINESS EXPENSES"],
-      ["Date", "Title", "Category", "Method", "Paid To", "Amount (BDT)"],
-      ...(actualExpenses.length > 0
+      const actualRows = actualExpenses.length > 0
         ? actualExpenses.map((x) => [
-            x.expense_date,
+            isBn ? toBengaliDigits(x.expense_date) : x.expense_date,
             x.title,
-            x.category,
-            x.payment_method || "Cash",
+            isBn ? (BN_TERMS[x.category] || x.category) : x.category,
+            isBn ? (BN_TERMS[x.payment_method] || x.payment_method || "নগদ") : (x.payment_method || "Cash"),
             x.paid_to || "-",
-            Number(x.amount || 0),
+            isBn ? toBengaliCurrency(x.amount) : Number(x.amount || 0),
           ])
-        : [["-", "No actual expenses for this period", "-", "-", "-", 0]]),
-      ["TOTAL ACTUAL EXPENSE", "", "", "", "", actualExpenseTotal],
-      [],
-      ["SECTION 2: FUND TRANSFER (BANK DEPOSITS)"],
-      ["Date", "Title", "Category", "Method", "Paid To", "Amount (BDT)"],
-      ...(fundTransfers.length > 0
+        : [[
+            "-",
+            isBn ? "এই সময়ের জন্য কোনো খরচ পাওয়া যায়নি" : "No actual expenses for this period",
+            "-",
+            "-",
+            "-",
+            isBn ? "০" : 0,
+          ]];
+
+      const transferRows = fundTransfers.length > 0
         ? fundTransfers.map((x) => [
-            x.expense_date,
+            isBn ? toBengaliDigits(x.expense_date) : x.expense_date,
             x.title,
-            x.category,
-            x.payment_method || "Cash",
+            isBn ? (BN_TERMS[x.category] || x.category) : x.category,
+            isBn ? (BN_TERMS[x.payment_method] || x.payment_method || "নগদ") : (x.payment_method || "Cash"),
             x.paid_to || "-",
-            Number(x.amount || 0),
+            isBn ? toBengaliCurrency(x.amount) : Number(x.amount || 0),
           ])
-        : [["-", "No fund transfer records for this period", "-", "-", "-", 0]]),
-      ["TOTAL FUND TRANSFER", "", "", "", "", fundTransferTotal],
-      [],
-      ["SUMMARY"],
-      ["Total Actual Business Expense (BDT)", "", "", "", "", actualExpenseTotal],
-      ["Total Fund Transfer / Bank Deposits (BDT)", "", "", "", "", fundTransferTotal],
-      ["Grand Total Outflow (BDT)", "", "", "", "", actualExpenseTotal + fundTransferTotal],
-      [],
-      [],
-      ["", "", "", "", "Expense From Cash Drawer", cashExpenseTotal],
-      ["", "", "", "", "Expense From Bank Account", bankExpenseTotal],
-      ["", "", "", "", "Actual Business Expense Total (BDT)", actualExpenseTotal],
-    ];
+        : [[
+            "-",
+            isBn ? "এই সময়ের জন্য কোনো ফান্ড ট্রান্সফার নেই" : "No fund transfer records for this period",
+            "-",
+            "-",
+            "-",
+            isBn ? "০" : 0,
+          ]];
 
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [
-      { wch: 14 }, // Date
-      { wch: 30 }, // Title
-      { wch: 28 }, // Category
-      { wch: 12 }, // Method
-      { wch: 36 }, // Paid To / Summary label
-      { wch: 18 }, // Amount (BDT)
-    ];
+      let rows = [
+        [headerCompany],
+        [reportTitle],
+        [],
+        [sec1Title],
+        colHeaders,
+        ...actualRows,
+        [isBn ? "মোট প্রকৃত খরচ" : "TOTAL ACTUAL EXPENSE", "", "", "", "", isBn ? toBengaliCurrency(actualExpenseTotal) : actualExpenseTotal],
+        [],
+        [sec2Title],
+        colHeaders,
+        ...transferRows,
+        [isBn ? "মোট ফান্ড ট্রান্সফার" : "TOTAL FUND TRANSFER", "", "", "", "", isBn ? toBengaliCurrency(fundTransferTotal) : fundTransferTotal],
+        [],
+        [isBn ? "সারসংক্ষেপ" : "SUMMARY"],
+        [isBn ? "মোট প্রকৃত ব্যবসায়িক খরচ (টাকা)" : "Total Actual Business Expense (BDT)", "", "", "", "", isBn ? toBengaliCurrency(actualExpenseTotal) : actualExpenseTotal],
+        [isBn ? "মোট ফান্ড ট্রান্সফার / ব্যাংক জমা (টাকা)" : "Total Fund Transfer / Bank Deposits (BDT)", "", "", "", "", isBn ? toBengaliCurrency(fundTransferTotal) : fundTransferTotal],
+        [isBn ? "সর্বমোট আউটফ্লো / ব্যয় (টাকা)" : "Grand Total Outflow (BDT)", "", "", "", "", isBn ? toBengaliCurrency(actualExpenseTotal + fundTransferTotal) : actualExpenseTotal + fundTransferTotal],
+        [],
+        [],
+        ["", "", "", "", isBn ? "ক্যাশ ড্রয়ার থেকে খরচ" : "Expense From Cash Drawer", isBn ? toBengaliCurrency(cashExpenseTotal) : cashExpenseTotal],
+        ["", "", "", "", isBn ? "ব্যাংক অ্যাকাউন্ট থেকে খরচ" : "Expense From Bank Account", isBn ? toBengaliCurrency(bankExpenseTotal) : bankExpenseTotal],
+        ["", "", "", "", isBn ? "প্রকৃত ব্যবসায়িক মোট খরচ (টাকা)" : "Actual Business Expense Total (BDT)", isBn ? toBengaliCurrency(actualExpenseTotal) : actualExpenseTotal],
+      ];
 
-    XLSX.utils.book_append_sheet(wb, ws, "Expenses");
-    XLSX.writeFile(wb, `CEW_Expenses_${mode}_${range.label.replace(/[^a-zA-Z0-9]+/g, "_")}.xlsx`);
+      if (isBn) {
+        rows = await batchTranslateTable(rows, (pct) => setTranslatingProgress(pct));
+      }
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"] = [
+        { wch: 15 },
+        { wch: 32 },
+        { wch: 28 },
+        { wch: 16 },
+        { wch: 36 },
+        { wch: 20 },
+      ];
+
+      applyExcelStyles(ws, isBn);
+
+      XLSX.utils.book_append_sheet(wb, ws, isBn ? "খরচের বিবরণ" : "Expenses");
+      const langTag = isBn ? "_Bangla" : "";
+      XLSX.writeFile(wb, `CEW_Expenses_${mode}_${range.label.replace(/[^a-zA-Z0-9]+/g, "_")}${langTag}.xlsx`);
+    } catch (err) {
+      console.error("Export expense Excel error:", err);
+      alert("Failed to export Excel. Please try again.");
+    } finally {
+      setTranslatingExcel(false);
+      setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+    }
   }
 
   // Comprehensive Multi-Sheet Salary Excel Report
-  function exportSalaryExcel() {
+  async function executeExportSalaryExcel(lang = "en") {
     let salaryRows = filtered.filter((x) => x.category === "Salary");
     if (!salaryRows.length) {
       salaryRows = expenses.filter((x) => x.category === "Salary");
@@ -1257,206 +1336,289 @@ export default function ExpensesPage() {
 
     if (!salaryRows.length) {
       alert("No salary records found to export.");
+      setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
       return;
     }
 
-    const wb = XLSX.utils.book_new();
-    const grandSalaryTotal = salaryRows.reduce((s, x) => s + x.amount, 0);
+    const isBn = lang === "bn";
+    if (isBn) {
+      setTranslatingExcel(true);
+      setTranslatingProgress(5);
+    }
 
-    // 1. DATA SHEET: All Salary Transactions
-    const txnSheetRows = [
-      ["CHOWDHURY ENGINEERING WORKS"],
-      ["SALARY PAYMENT DISBURSEMENT LEDGER"],
-      [`Period: ${range.label} | Total Records: ${salaryRows.length} | Grand Total: BDT ${fmt(grandSalaryTotal)}`],
-      [],
-      [
-        "SL",
-        "Payment Date",
-        "Month-Year",
-        "Employee Name",
-        "Title / Designation",
-        "Payment Method",
-        "From Bank / Channel",
-        "To Bank / Account",
-        "Salary Amount (BDT)",
-        "Note / Remarks",
-      ],
-      ...salaryRows.map((x, i) => {
-        const d = fromStr(x.expense_date);
-        const mLabel = `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-        return [
-          i + 1,
-          x.expense_date,
-          mLabel,
-          x.paid_to || x.title || "Employee",
-          x.title || "Salary",
-          x.payment_method || "Cash",
-          x.from_bank || "-",
-          x.to_bank || "-",
-          x.amount,
-          x.note || "-",
-        ];
-      }),
-      [],
-      ["TOTAL", "", "", "", "", "", "", "", grandSalaryTotal, ""],
-    ];
-    const wsTxn = XLSX.utils.aoa_to_sheet(txnSheetRows);
-    wsTxn["!cols"] = [
-      { wch: 6 },
-      { wch: 14 },
-      { wch: 18 },
-      { wch: 25 },
-      { wch: 25 },
-      { wch: 14 },
-      { wch: 22 },
-      { wch: 22 },
-      { wch: 18 },
-      { wch: 30 },
-    ];
-    XLSX.utils.book_append_sheet(wb, wsTxn, "Salary Transactions");
+    try {
+      const grandSalaryTotal = salaryRows.reduce((s, x) => s + x.amount, 0);
+      const headerCompany = isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS";
+      const periodLabel = isBn ? translatePeriodLabel(range.label) : range.label;
 
-    // 2. MONTH-WISE BREAKDOWN SHEET
-    const monthMap = new Map();
-    salaryRows.forEach((x) => {
-      const mKey = x.expense_date.slice(0, 7);
-      if (!monthMap.has(mKey)) {
-        monthMap.set(mKey, { total: 0, cash: 0, bank: 0, persons: new Set() });
-      }
-      const entry = monthMap.get(mKey);
-      entry.total += x.amount;
-      if (x.payment_method === "Cash") entry.cash += x.amount;
-      else entry.bank += x.amount;
-      entry.persons.add((x.paid_to || x.title).trim());
-    });
-
-    const monthSheetRows = [
-      ["CHOWDHURY ENGINEERING WORKS"],
-      ["SALARY REPORT: MONTH-WISE TOTAL BREAKDOWN"],
-      [],
-      [
-        "SL",
-        "Month - Year",
-        "Employees Paid",
-        "Cash Disbursed (BDT)",
-        "Bank / Digital (BDT)",
-        "Total Salary Amount (BDT)",
-      ],
-      ...Array.from(monthMap.entries())
-        .sort((a, b) => b[0].localeCompare(a[0]))
-        .map(([mKey, v], idx) => {
-          const [yr, mo] = mKey.split("-").map(Number);
-          const mLabel = `${MONTHS[mo - 1]} ${yr}`;
+      // 1. DATA SHEET: All Salary Transactions
+      let txnSheetRows = [
+        [headerCompany],
+        [isBn ? "স্টাফ বেতন ও মজুরি পরিশোধ খতিয়ান" : "SALARY PAYMENT DISBURSEMENT LEDGER"],
+        [isBn
+          ? `সময়কাল: ${periodLabel} | মোট রেকর্ড: ${toBengaliDigits(salaryRows.length)} | সর্বমোট: ৳ ${toBengaliCurrency(grandSalaryTotal)}`
+          : `Period: ${range.label} | Total Records: ${salaryRows.length} | Grand Total: BDT ${fmt(grandSalaryTotal)}`],
+        [],
+        isBn
+          ? [
+              "ক্রমিক",
+              "পরিশোধের তারিখ",
+              "মাস-বছর",
+              "কর্মচারীর নাম",
+              "পদবী / কাজের বিবরণ",
+              "পেমেন্ট মাধ্যম",
+              "প্রেরক ব্যাংক / মাধ্যম",
+              "প্রাপক ব্যাংক / অ্যাকাউন্ট",
+              "বেতনের পরিমাণ (টাকা)",
+              "মন্তব্য / বিবরণ",
+            ]
+          : [
+              "SL",
+              "Payment Date",
+              "Month-Year",
+              "Employee Name",
+              "Title / Designation",
+              "Payment Method",
+              "From Bank / Channel",
+              "To Bank / Account",
+              "Salary Amount (BDT)",
+              "Note / Remarks",
+            ],
+        ...salaryRows.map((x, i) => {
+          const d = fromStr(x.expense_date);
+          const mLabel = isBn
+            ? `${BN_MONTHS[d.getMonth()]} ${toBengaliDigits(d.getFullYear())}`
+            : `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+          const empName = x.paid_to || x.title || (isBn ? "কর্মচারী" : "Employee");
+          const titleVal = isBn ? (BN_TERMS[x.title] || x.title || "বেতন") : (x.title || "Salary");
+          const methodVal = isBn ? (BN_TERMS[x.payment_method] || x.payment_method || "নগদ") : (x.payment_method || "Cash");
           return [
-            idx + 1,
+            isBn ? toBengaliDigits(i + 1) : i + 1,
+            isBn ? toBengaliDigits(x.expense_date) : x.expense_date,
             mLabel,
-            v.persons.size,
-            v.cash,
-            v.bank,
-            v.total,
+            empName,
+            titleVal,
+            methodVal,
+            x.from_bank || "-",
+            x.to_bank || "-",
+            isBn ? toBengaliCurrency(x.amount) : x.amount,
+            x.note || "-",
           ];
         }),
-      [],
-      [
-        "GRAND TOTAL",
-        "",
-        Array.from(new Set(salaryRows.map((x) => (x.paid_to || x.title).trim()))).size,
-        salaryRows.filter((x) => x.payment_method === "Cash").reduce((s, x) => s + x.amount, 0),
-        salaryRows.filter((x) => x.payment_method !== "Cash").reduce((s, x) => s + x.amount, 0),
-        grandSalaryTotal,
-      ],
-    ];
-    const wsMonth = XLSX.utils.aoa_to_sheet(monthSheetRows);
-    wsMonth["!cols"] = [{ wch: 6 }, { wch: 22 }, { wch: 16 }, { wch: 22 }, { wch: 22 }, { wch: 24 }];
-    XLSX.utils.book_append_sheet(wb, wsMonth, "Month-wise Breakdown");
+        [],
+        [isBn ? "সর্বমোট" : "TOTAL", "", "", "", "", "", "", "", isBn ? toBengaliCurrency(grandSalaryTotal) : grandSalaryTotal, ""],
+      ];
 
-    // 3. EMPLOYEE / NAME-WISE BREAKDOWN SHEET
-    const empMap = new Map();
-    salaryRows.forEach((x) => {
-      const name = (x.paid_to || x.title).trim();
-      if (!empMap.has(name)) {
-        empMap.set(name, {
-          name,
-          total: 0,
-          months: new Set(),
-          methods: new Set(),
-          lastDate: x.expense_date,
-        });
+      // 2. MONTH-WISE BREAKDOWN SHEET
+      const monthMap = new Map();
+      salaryRows.forEach((x) => {
+        const mKey = x.expense_date.slice(0, 7);
+        if (!monthMap.has(mKey)) {
+          monthMap.set(mKey, { total: 0, cash: 0, bank: 0, persons: new Set() });
+        }
+        const entry = monthMap.get(mKey);
+        entry.total += x.amount;
+        if (x.payment_method === "Cash") entry.cash += x.amount;
+        else entry.bank += x.amount;
+        entry.persons.add((x.paid_to || x.title).trim());
+      });
+
+      let monthSheetRows = [
+        [headerCompany],
+        [isBn ? "বেতন রিপোর্ট: মাস ভিত্তিক সারসংক্ষেপ" : "SALARY REPORT: MONTH-WISE TOTAL BREAKDOWN"],
+        [],
+        isBn
+          ? [
+              "ক্রমিক",
+              "মাস - বছর",
+              "কর্মচারীর সংখ্যা",
+              "নগদ প্রদান (টাকা)",
+              "ব্যাংক / ডিজিটাল (টাকা)",
+              "সর্বমোট বেতন (টাকা)",
+            ]
+          : [
+              "SL",
+              "Month - Year",
+              "Employees Paid",
+              "Cash Disbursed (BDT)",
+              "Bank / Digital (BDT)",
+              "Total Salary Amount (BDT)",
+            ],
+        ...Array.from(monthMap.entries())
+          .sort((a, b) => b[0].localeCompare(a[0]))
+          .map(([mKey, v], idx) => {
+            const [yr, mo] = mKey.split("-").map(Number);
+            const mLabel = isBn
+              ? `${BN_MONTHS[mo - 1]} ${toBengaliDigits(yr)}`
+              : `${MONTHS[mo - 1]} ${yr}`;
+            return [
+              isBn ? toBengaliDigits(idx + 1) : idx + 1,
+              mLabel,
+              isBn ? toBengaliDigits(v.persons.size) : v.persons.size,
+              isBn ? toBengaliCurrency(v.cash) : v.cash,
+              isBn ? toBengaliCurrency(v.bank) : v.bank,
+              isBn ? toBengaliCurrency(v.total) : v.total,
+            ];
+          }),
+        [],
+        [
+          isBn ? "সর্বমোট" : "GRAND TOTAL",
+          "",
+          isBn
+            ? toBengaliDigits(Array.from(new Set(salaryRows.map((x) => (x.paid_to || x.title).trim()))).size)
+            : Array.from(new Set(salaryRows.map((x) => (x.paid_to || x.title).trim()))).size,
+          isBn
+            ? toBengaliCurrency(salaryRows.filter((x) => x.payment_method === "Cash").reduce((s, x) => s + x.amount, 0))
+            : salaryRows.filter((x) => x.payment_method === "Cash").reduce((s, x) => s + x.amount, 0),
+          isBn
+            ? toBengaliCurrency(salaryRows.filter((x) => x.payment_method !== "Cash").reduce((s, x) => s + x.amount, 0))
+            : salaryRows.filter((x) => x.payment_method !== "Cash").reduce((s, x) => s + x.amount, 0),
+          isBn ? toBengaliCurrency(grandSalaryTotal) : grandSalaryTotal,
+        ],
+      ];
+
+      // 3. EMPLOYEE / NAME-WISE BREAKDOWN SHEET
+      const empMap = new Map();
+      salaryRows.forEach((x) => {
+        const name = (x.paid_to || x.title).trim();
+        if (!empMap.has(name)) {
+          empMap.set(name, {
+            name,
+            total: 0,
+            months: new Set(),
+            methods: new Set(),
+            lastDate: x.expense_date,
+          });
+        }
+        const entry = empMap.get(name);
+        entry.total += x.amount;
+        entry.months.add(x.expense_date.slice(0, 7));
+        entry.methods.add(x.payment_method || "Cash");
+        if (x.expense_date > entry.lastDate) entry.lastDate = x.expense_date;
+      });
+
+      let empSheetRows = [
+        [headerCompany],
+        [isBn ? "বেতন রিপোর্ট: কর্মচারী ভিত্তিক সারসংক্ষেপ" : "SALARY REPORT: EMPLOYEE-WISE TOTAL BREAKDOWN"],
+        [],
+        isBn
+          ? [
+              "ক্রমিক",
+              "কর্মচারীর নাম",
+              "মাসের সংখ্যা",
+              "পেমেন্ট মাধ্যম",
+              "সর্বশেষ প্রদানের তারিখ",
+              "মোট প্রদত্ত বেতন (টাকা)",
+            ]
+          : [
+              "SL",
+              "Employee Name",
+              "Months Count",
+              "Payment Method(s)",
+              "Last Payment Date",
+              "Total Salary Paid (BDT)",
+            ],
+        ...Array.from(empMap.values())
+          .sort((a, b) => b.total - a.total)
+          .map((e, idx) => [
+            isBn ? toBengaliDigits(idx + 1) : idx + 1,
+            e.name,
+            isBn ? toBengaliDigits(e.months.size) : e.months.size,
+            Array.from(e.methods).map((m) => isBn ? (BN_TERMS[m] || m) : m).join(", "),
+            isBn ? toBengaliDigits(e.lastDate) : e.lastDate,
+            isBn ? toBengaliCurrency(e.total) : e.total,
+          ]),
+        [],
+        [isBn ? "সর্বমোট" : "GRAND TOTAL", "", "", "", "", isBn ? toBengaliCurrency(grandSalaryTotal) : grandSalaryTotal],
+      ];
+
+      // 4. DATE-WISE BREAKDOWN SHEET
+      const dateMap = new Map();
+      salaryRows.forEach((x) => {
+        const dt = x.expense_date;
+        if (!dateMap.has(dt)) {
+          dateMap.set(dt, { total: 0, persons: new Set(), methods: new Set() });
+        }
+        const entry = dateMap.get(dt);
+        entry.total += x.amount;
+        entry.persons.add((x.paid_to || x.title).trim());
+        entry.methods.add(x.payment_method || "Cash");
+      });
+
+      let dateSheetRows = [
+        [headerCompany],
+        [isBn ? "বেতন রিপোর্ট: তারিখ ভিত্তিক সারসংক্ষেপ" : "SALARY REPORT: DATE-WISE TOTAL BREAKDOWN"],
+        [],
+        isBn
+          ? ["ক্রমিক", "পরিশোধের তারিখ", "বার / দিন", "প্রাপকের সংখ্যা", "পেমেন্ট মাধ্যম", "মোট প্রদত্ত পরিমাণ (টাকা)"]
+          : ["SL", "Payment Date", "Day", "Persons Paid", "Payment Methods", "Total Amount Disbursed (BDT)"],
+        ...Array.from(dateMap.entries())
+          .sort((a, b) => b[0].localeCompare(a[0]))
+          .map(([dt, v], idx) => {
+            const d = fromStr(dt);
+            return [
+              isBn ? toBengaliDigits(idx + 1) : idx + 1,
+              isBn ? toBengaliDigits(dt) : dt,
+              isBn ? BN_DAYS[d.getDay()] : DAYS[d.getDay()],
+              isBn ? toBengaliDigits(v.persons.size) : v.persons.size,
+              Array.from(v.methods).map((m) => isBn ? (BN_TERMS[m] || m) : m).join(", "),
+              isBn ? toBengaliCurrency(v.total) : v.total,
+            ];
+          }),
+        [],
+        [isBn ? "সর্বমোট" : "GRAND TOTAL", "", "", "", "", isBn ? toBengaliCurrency(grandSalaryTotal) : grandSalaryTotal],
+      ];
+
+      if (isBn) {
+        setTranslatingProgress(15);
+        txnSheetRows = await batchTranslateTable(txnSheetRows, (p) => setTranslatingProgress(Math.round(15 + p * 0.4)));
+        monthSheetRows = await batchTranslateTable(monthSheetRows, (p) => setTranslatingProgress(Math.round(55 + p * 0.15)));
+        empSheetRows = await batchTranslateTable(empSheetRows, (p) => setTranslatingProgress(Math.round(70 + p * 0.15)));
+        dateSheetRows = await batchTranslateTable(dateSheetRows, (p) => setTranslatingProgress(Math.round(85 + p * 0.15)));
       }
-      const entry = empMap.get(name);
-      entry.total += x.amount;
-      entry.months.add(x.expense_date.slice(0, 7));
-      entry.methods.add(x.payment_method || "Cash");
-      if (x.expense_date > entry.lastDate) entry.lastDate = x.expense_date;
-    });
 
-    const empSheetRows = [
-      ["CHOWDHURY ENGINEERING WORKS"],
-      ["SALARY REPORT: EMPLOYEE-WISE TOTAL BREAKDOWN"],
-      [],
-      [
-        "SL",
-        "Employee Name",
-        "Months Count",
-        "Payment Method(s)",
-        "Last Payment Date",
-        "Total Salary Paid (BDT)",
-      ],
-      ...Array.from(empMap.values())
-        .sort((a, b) => b.total - a.total)
-        .map((e, idx) => [
-          idx + 1,
-          e.name,
-          e.months.size,
-          Array.from(e.methods).join(", "),
-          e.lastDate,
-          e.total,
-        ]),
-      [],
-      ["GRAND TOTAL", "", "", "", "", grandSalaryTotal],
-    ];
-    const wsEmp = XLSX.utils.aoa_to_sheet(empSheetRows);
-    wsEmp["!cols"] = [{ wch: 6 }, { wch: 28 }, { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 24 }];
-    XLSX.utils.book_append_sheet(wb, wsEmp, "Employee Summary");
+      const wb = XLSX.utils.book_new();
 
-    // 4. DATE-WISE BREAKDOWN SHEET
-    const dateMap = new Map();
-    salaryRows.forEach((x) => {
-      const dt = x.expense_date;
-      if (!dateMap.has(dt)) {
-        dateMap.set(dt, { total: 0, persons: new Set(), methods: new Set() });
-      }
-      const entry = dateMap.get(dt);
-      entry.total += x.amount;
-      entry.persons.add((x.paid_to || x.title).trim());
-      entry.methods.add(x.payment_method || "Cash");
-    });
+      const wsTxn = XLSX.utils.aoa_to_sheet(txnSheetRows);
+      wsTxn["!cols"] = [
+        { wch: 8 },
+        { wch: 16 },
+        { wch: 20 },
+        { wch: 25 },
+        { wch: 25 },
+        { wch: 16 },
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 20 },
+        { wch: 30 },
+      ];
+      applyExcelStyles(wsTxn, isBn);
+      XLSX.utils.book_append_sheet(wb, wsTxn, isBn ? "বেতন লেনদেন" : "Salary Transactions");
 
-    const dateSheetRows = [
-      ["CHOWDHURY ENGINEERING WORKS"],
-      ["SALARY REPORT: DATE-WISE TOTAL BREAKDOWN"],
-      [],
-      ["SL", "Payment Date", "Day", "Persons Paid", "Payment Methods", "Total Amount Disbursed (BDT)"],
-      ...Array.from(dateMap.entries())
-        .sort((a, b) => b[0].localeCompare(a[0]))
-        .map(([dt, v], idx) => {
-          const d = fromStr(dt);
-          return [
-            idx + 1,
-            dt,
-            DAYS[d.getDay()],
-            v.persons.size,
-            Array.from(v.methods).join(", "),
-            v.total,
-          ];
-        }),
-      [],
-      ["GRAND TOTAL", "", "", "", "", grandSalaryTotal],
-    ];
-    const wsDate = XLSX.utils.aoa_to_sheet(dateSheetRows);
-    wsDate["!cols"] = [{ wch: 6 }, { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 25 }, { wch: 26 }];
-    XLSX.utils.book_append_sheet(wb, wsDate, "Date-wise Breakdown");
+      const wsMonth = XLSX.utils.aoa_to_sheet(monthSheetRows);
+      wsMonth["!cols"] = [{ wch: 8 }, { wch: 24 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 24 }];
+      applyExcelStyles(wsMonth, isBn);
+      XLSX.utils.book_append_sheet(wb, wsMonth, isBn ? "মাস ভিত্তিক" : "Month-wise Breakdown");
 
-    XLSX.writeFile(wb, `CEW_Salary_Report_${today().replace(/-/g, "")}.xlsx`);
+      const wsEmp = XLSX.utils.aoa_to_sheet(empSheetRows);
+      wsEmp["!cols"] = [{ wch: 8 }, { wch: 28 }, { wch: 16 }, { wch: 24 }, { wch: 20 }, { wch: 24 }];
+      applyExcelStyles(wsEmp, isBn);
+      XLSX.utils.book_append_sheet(wb, wsEmp, isBn ? "কর্মচারী বিবরণ" : "Employee Summary");
+
+      const wsDate = XLSX.utils.aoa_to_sheet(dateSheetRows);
+      wsDate["!cols"] = [{ wch: 8 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 25 }, { wch: 26 }];
+      applyExcelStyles(wsDate, isBn);
+      XLSX.utils.book_append_sheet(wb, wsDate, isBn ? "তারিখ ভিত্তিক" : "Date-wise Breakdown");
+
+      const langTag = isBn ? "_Bangla" : "";
+      XLSX.writeFile(wb, `CEW_Salary_Report_${today().replace(/-/g, "")}${langTag}.xlsx`);
+    } catch (err) {
+      console.error("Export salary Excel error:", err);
+      alert("Failed to export Salary Excel. Please try again.");
+    } finally {
+      setTranslatingExcel(false);
+      setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+    }
   }
 
   // Generate and download a sample Excel file template
@@ -1687,22 +1849,22 @@ export default function ExpensesPage() {
         </nav>
       </header>
 
-      {/* Top Cards Filter Bar */}
+      {/* Top Filter Bar (Synchronized with Expense Table) */}
       <div className="ex-kpi-filter-bar">
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span className="ex-kpi-filter-label">
-            <BarChartIcon size={15} style={{ color: "#2563eb" }} /> Overview Cards Filter:
+            <BarChartIcon size={15} style={{ color: "#2563eb" }} /> Filter Period:
           </span>
           <div className="be-duration-group">
             {MODES.map((m) => (
               <button
                 key={m.key}
                 type="button"
-                className={`be-duration-btn ${kpiMode === m.key ? "active" : ""}`}
+                className={`be-duration-btn ${mode === m.key ? "active" : ""}`}
                 onClick={() => {
-                  setKpiMode(m.key);
+                  setMode(m.key);
                   if (m.key === "week") {
-                    setKpiRef(weekStart(kpiRef || today()));
+                    setRef(weekStart(ref || today()));
                   }
                 }}
               >
@@ -1712,12 +1874,12 @@ export default function ExpensesPage() {
           </div>
         </div>
 
-        {kpiMode !== "all" && (
+        {mode !== "all" && (
           <div className="ex-nav-group">
             <button
               type="button"
               className="ex-arrow"
-              onClick={() => setKpiRef(shiftRef(kpiMode, kpiRef, -1))}
+              onClick={() => setRef(shiftRef(mode, ref, -1))}
               aria-label="Previous"
               title="Previous period"
             >
@@ -1737,12 +1899,12 @@ export default function ExpensesPage() {
                 textAlign: "center",
               }}
             >
-              {kpiRange.label}
+              {range.label}
             </span>
             <button
               type="button"
               className="ex-arrow"
-              onClick={() => setKpiRef(shiftRef(kpiMode, kpiRef, 1))}
+              onClick={() => setRef(shiftRef(mode, ref, 1))}
               aria-label="Next"
               title="Next period"
             >
@@ -1753,15 +1915,30 @@ export default function ExpensesPage() {
               className="be-nav-btn"
               style={{ fontSize: "0.76rem", padding: "4px 10px" }}
               onClick={() => {
-                if (kpiMode === "week") {
-                  setKpiRef(weekStart(today()));
+                if (mode === "week") {
+                  setRef(weekStart(today()));
                 } else {
-                  setKpiRef(today());
+                  setRef(today());
                 }
               }}
             >
               Current
             </button>
+            <input
+              type="date"
+              className="be-input"
+              style={{ width: 125, padding: "3px 6px", fontSize: "0.76rem", height: 28 }}
+              value={ref}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                if (mode === "week") {
+                  setRef(weekStart(e.target.value));
+                } else {
+                  setRef(e.target.value);
+                }
+              }}
+              aria-label="Jump to date"
+            />
           </div>
         )}
       </div>
@@ -2289,7 +2466,7 @@ export default function ExpensesPage() {
               <button
                 type="button"
                 className="be-nav-btn"
-                onClick={exportSalaryExcel}
+                onClick={() => openExcelLanguageModal("salary", `Staff / Salary Report`)}
                 disabled={!filtered.length}
                 style={{
                   display: "inline-flex",
@@ -2309,7 +2486,7 @@ export default function ExpensesPage() {
                 <button
                   type="button"
                   className="be-nav-btn"
-                  onClick={exportExcel}
+                  onClick={() => openExcelLanguageModal("expenses", "Expense & Fund Transfer Report")}
                   disabled={!filtered.length}
                   style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                 >
@@ -2319,7 +2496,7 @@ export default function ExpensesPage() {
                   <button
                     type="button"
                     className="be-nav-btn"
-                    onClick={exportSalaryExcel}
+                    onClick={() => openExcelLanguageModal("salary", "Staff / Salary Report")}
                     style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                     title="Export multi-sheet Staff breakdown report for all salary payments"
                   >
@@ -2400,7 +2577,7 @@ export default function ExpensesPage() {
             <button
               type="button"
               className="be-nav-btn"
-              onClick={exportSalaryExcel}
+              onClick={() => openExcelLanguageModal("salary", `${catFilter} Report`)}
               disabled={!filtered.length}
               style={{
                 display: "inline-flex",
@@ -2437,7 +2614,7 @@ export default function ExpensesPage() {
               type="button"
               className="be-btn be-btn-primary"
               style={{ padding: "5px 14px", fontSize: "0.78rem", borderRadius: 7 }}
-              onClick={exportSalaryExcel}
+              onClick={() => openExcelLanguageModal("salary", `${catFilter} Report`)}
             >
               Export {catFilter} Excel
             </button>
@@ -3290,6 +3467,105 @@ export default function ExpensesPage() {
           </div>
         </div>
       )}
+
+      {/* Excel Language Selection Modal & Translation Progress */}
+      {excelLangModal.isOpen && (
+        <div
+          className="excel-lang-overlay"
+          onClick={() => {
+            if (!translatingExcel) setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+          }}
+        >
+          <div className="excel-lang-card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ background: "#dcfce7", color: "#15803d", width: 38, height: 38, borderRadius: 10, display: "grid", placeItems: "center" }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 800, color: "#0f172a" }}>
+                    Select Download Language
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "0.78rem", color: "#64748b" }}>
+                    {excelLangModal.title}
+                  </p>
+                </div>
+              </div>
+              {!translatingExcel && (
+                <button
+                  type="button"
+                  onClick={() => setExcelLangModal((prev) => ({ ...prev, isOpen: false }))}
+                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "#94a3b8", padding: 4 }}
+                >
+                  <XIcon size={18} />
+                </button>
+              )}
+            </div>
+
+            {translatingExcel ? (
+              <div style={{ padding: "16px 0", textAlign: "center" }}>
+                <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#1e3a8a", marginBottom: 6 }}>
+                  Translating and preparing Excel file... ({translatingProgress}%)
+                </div>
+                <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "0 0 12px" }}>
+                  Translating data entries into Bengali and styling the workbook. Please wait...
+                </p>
+                <div className="excel-lang-progress-track">
+                  <div className="excel-lang-progress-bar" style={{ width: `${translatingProgress}%` }} />
+                </div>
+              </div>
+            ) : (
+              <>
+                <p style={{ fontSize: "0.85rem", color: "#475569", margin: "10px 0 16px" }}>
+                  Choose your preferred language format for this Excel (.xlsx) workbook export:
+                </p>
+
+                <div className="excel-lang-options">
+                  <button
+                    type="button"
+                    className="excel-lang-btn bn"
+                    onClick={() => {
+                      if (excelLangModal.type === "salary") {
+                        executeExportSalaryExcel("bn");
+                      } else {
+                        executeExportExcel("bn");
+                      }
+                    }}
+                  >
+                    <span style={{ fontSize: "1.3rem", marginBottom: 4 }}>🇧🇩</span>
+                    <strong style={{ fontSize: "0.95rem", color: "#1e3a8a" }}>Bangla</strong>
+                    <span className="excel-lang-badge" style={{ background: "#dbeafe", color: "#1e40af" }}>
+                      Smart Translation
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="excel-lang-btn"
+                    onClick={() => {
+                      if (excelLangModal.type === "salary") {
+                        executeExportSalaryExcel("en");
+                      } else {
+                        executeExportExcel("en");
+                      }
+                    }}
+                  >
+                    <span style={{ fontSize: "1.3rem", marginBottom: 4 }}>🇬🇧</span>
+                    <strong style={{ fontSize: "0.95rem", color: "#0f172a" }}>English</strong>
+                    <span className="excel-lang-badge" style={{ background: "#f1f5f9", color: "#475569" }}>
+                      Original Data
+                    </span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -3333,15 +3609,17 @@ function DayGroup({ day, list, onSelect, showHeader }) {
               {isDep && <span className="ex-deposit-sub">Deposit (Not Expense)</span>}
             </td>
             <td>
-              <span style={{ fontWeight: 600 }}>{x.paid_to || "-"}</span>
+              <div style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ fontWeight: 600 }}>{x.paid_to || "-"}</span>
+                {Boolean(x.linked_client || x.linked_entry_id) && (
+                  <span className="ex-ledger-tick" title="Recorded as payment in Purchase ledger">
+                    <CheckIcon size={10} />
+                  </span>
+                )}
+              </div>
               {x.phone && (
                 <span style={{ display: "block", fontSize: "0.75rem", color: "#64748b", marginTop: 2 }}>
                   📞 {x.phone}
-                </span>
-              )}
-              {Boolean(x.linked_client || x.linked_entry_id) && (
-                <span className="ex-ledger-badge" title="Recorded as payment in Purchase ledger" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 2 }}>
-                  <CheckIcon size={11} /> Ledger
                 </span>
               )}
             </td>

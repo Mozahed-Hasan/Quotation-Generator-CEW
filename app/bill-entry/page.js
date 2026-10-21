@@ -3,8 +3,15 @@ import { useEffect, useState, useMemo, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { takaInWords } from "@/lib/words";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import { XIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, BarChartIcon } from "@/lib/icons";
+import {
+  batchTranslateTable,
+  toBengaliDigits,
+  toBengaliCurrency,
+  translatePeriodLabel,
+  applyExcelStyles,
+} from "@/lib/translator";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = [
@@ -241,10 +248,16 @@ export default function BillEntryPage() {
   const [successMsg, setSuccessMsg] = useState("");
 
   const [showCustomersModal, setShowCustomersModal] = useState(false);
-  // Dedicated Duration Filter for Top Overview Cards (KPI)
-  const [kpiMode, setKpiMode] = useState("all");
-  const [kpiRef, setKpiRef] = useState(today());
-  const kpiRange = useMemo(() => getKpiRange(kpiMode, kpiRef), [kpiMode, kpiRef]);
+  // Synchronized Duration Filter States (shared between Top Overview Cards & Invoices Table): 'all' | 'day' | 'week' | 'month' | 'year'
+  const [durationMode, setDurationMode] = useState("all");
+  const [tableRef, setTableRef] = useState(today());
+  const tableRange = useMemo(() => getKpiRange(durationMode, tableRef), [durationMode, tableRef]);
+  const kpiMode = durationMode;
+  const kpiRef = tableRef;
+  const kpiRange = tableRange;
+  const setKpiMode = setDurationMode;
+  const setKpiRef = setTableRef;
+
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
   const [modalSearch, setModalSearch] = useState("");
   const [modalBalanceFilter, setModalBalanceFilter] = useState("all");
@@ -268,10 +281,15 @@ export default function BillEntryPage() {
   const [showExcelMenu, setShowExcelMenu] = useState(false);
   const excelMenuRef = useRef(null);
 
-  // Duration Filter States for Table: 'all' | 'day' | 'week' | 'month' | 'year'
-  const [durationMode, setDurationMode] = useState("all");
-  const [tableRef, setTableRef] = useState(today());
-  const tableRange = useMemo(() => getKpiRange(durationMode, tableRef), [durationMode, tableRef]);
+  // Excel Language Modal States
+  const [excelLangModal, setExcelLangModal] = useState({
+    isOpen: false,
+    mode: "auto", // 'auto' | 'filtered' | 'all' | 'due' | 'advance' | 'customer'
+    customerGroup: null, // used when exporting a single customer
+    title: "Download Excel Report",
+  });
+  const [translatingExcel, setTranslatingExcel] = useState(false);
+  const [translatingProgress, setTranslatingProgress] = useState(0);
 
   // Previous Due / Advance Entry States
   const [prevEntry, setPrevEntry] = useState({
@@ -665,6 +683,7 @@ export default function BillEntryPage() {
               client_payment: isDue ? 0 : pAmt,
               due_advance: isDue ? pAmt : -pAmt,
               note: prevEntry.note.trim() || (isDue ? `Previous Due Balance (Ref Bill #${prevEntry.bill_no.trim()})` : `Previous Advance Received (Ref Bill #${prevEntry.bill_no.trim()})`),
+              is_opening_balance: true,
             };
             await fetch("/api/bill-entry", {
               method: "POST",
@@ -761,6 +780,7 @@ export default function BillEntryPage() {
         client_payment,
         due_advance,
         note: prevEntry.note.trim() || defaultNote,
+        is_opening_balance: true,
       };
 
       const res = await fetch("/api/bill-entry", {
@@ -1469,11 +1489,12 @@ export default function BillEntryPage() {
     router.refresh();
   }
 
-  // Stats
-  const totalBillsCount = bills.length;
-  const sumTotalBills = bills.reduce((s, b) => s + (Number(b.total_bill) || 0), 0);
-  const sumTotalPaid = bills.reduce((s, b) => s + (Number(b.client_payment) || 0), 0);
-  const sumTotalDue = bills.reduce((s, b) => s + (Number(b.due_advance) || 0), 0);
+  // Stats — exclude opening balance entries from financial totals
+  const realBills = bills.filter((b) => !b.is_opening_balance);
+  const totalBillsCount = realBills.length;
+  const sumTotalBills = realBills.reduce((s, b) => s + (Number(b.total_bill) || 0), 0);
+  const sumTotalPaid = realBills.reduce((s, b) => s + (Number(b.client_payment) || 0), 0);
+  const sumTotalDue = realBills.reduce((s, b) => s + (Number(b.due_advance) || 0), 0);
 
   // Dedicated calculations for Top KPI Cards (filtered strictly by kpiRange)
   const { kpiTotalInvoices, kpiTotalBilled, kpiTotalCollected } = useMemo(() => {
@@ -1482,6 +1503,7 @@ export default function BillEntryPage() {
     let totalCollected = 0;
 
     bills.forEach((b) => {
+      if (b.is_opening_balance) return; // exclude opening balance / prev due entries
       const d = b.bill_date ? String(b.bill_date).slice(0, 10) : "";
       if (kpiMode !== "all" && (d < kpiRange.from || d > kpiRange.to)) return;
 
@@ -1672,9 +1694,38 @@ export default function BillEntryPage() {
   }, [filteredBills]);
 
 
-  // Export to Excel Function (Auto detects active filters, or Full/Due/Advance modes)
-  function handleExportExcel(mode = "auto") {
+  // Open Language Modal for Invoices Excel Export
+  function openExcelLanguageModal(mode = "auto", customerGroup = null) {
+    setShowExcelMenu(false);
+    let title = "Download Excel Report";
+    if (customerGroup) {
+      title = `Customer Statement (${customerGroup.displayName})`;
+    } else if (mode === "due") {
+      title = "Due Accounts Only Report";
+    } else if (mode === "advance") {
+      title = "Advance Accounts Only Report";
+    } else if (mode === "all") {
+      title = "All Invoices Master Report";
+    } else {
+      title = "Filtered Invoices Report";
+    }
+
+    setExcelLangModal({
+      isOpen: true,
+      mode,
+      customerGroup,
+      title,
+    });
+  }
+
+  // Export to Excel Function (Supports 'en' and 'bn')
+  async function executeExportExcel(mode = "auto", lang = "en") {
     try {
+      if (lang === "bn") {
+        setTranslatingExcel(true);
+        setTranslatingProgress(5);
+      }
+
       const isFilterActive =
         balanceFilter !== "all" || durationMode !== "all" || Boolean(search.trim());
       const effectiveMode = mode === "auto" ? (isFilterActive ? "filtered" : "all") : mode;
@@ -1682,30 +1733,54 @@ export default function BillEntryPage() {
       const wb = XLSX.utils.book_new();
 
       // Period text
-      let periodInfo = durationMode !== "all" ? tableRange.label : "All Time";
+      const isBn = lang === "bn";
+      let periodInfo =
+        durationMode !== "all"
+          ? (isBn ? translatePeriodLabel(tableRange.label) : tableRange.label)
+          : (isBn ? "সর্বকালীন (সব সময়ের)" : "All Time");
 
-      // Helper to format invoices sheet
-      const makeInvoicesSheet = (billList, sheetTitle) => {
+      // Helper to format invoices sheet rows
+      const getInvoicesSheetRows = (billList, sheetTitle) => {
         const rows = [
-          ["CHOWDHURY ENGINEERING WORKS"],
+          [isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS"],
           [sheetTitle],
-          [`Generated Date: ${today()} | Period: ${periodInfo} | Total Records: ${billList.length}`],
-          [],
           [
-            "SL",
-            "Date",
-            "Bill No",
-            "Customer Name",
-            "Customer ID & Mobile",
-            "Items Count",
-            "Total Bill (BDT)",
-            "Payment (BDT)",
-            "Due (BDT)",
-            "Advance (BDT)",
-            "Due Recieved (BDT)",
-            "Remaining Balance (BDT)",
-            "Remarks / Note",
+            isBn
+              ? `তৈরির তারিখ: ${toBengaliDigits(today())} | সময়কাল: ${periodInfo} | মোট রেকর্ড: ${toBengaliDigits(billList.length)}`
+              : `Generated Date: ${today()} | Period: ${periodInfo} | Total Records: ${billList.length}`,
           ],
+          [],
+          isBn
+            ? [
+                "ক্রমিক",
+                "তারিখ",
+                "চালান নং",
+                "গ্রাহকের নাম",
+                "কাস্টমার আইডি ও মোবাইল",
+                "আইটেম সংখ্যা",
+                "মোট বিল (টাকা)",
+                "পরিশোধ (টাকা)",
+                "বাকি (টাকা)",
+                "অগ্রিম (টাকা)",
+                "বাকি আদায় (টাকা)",
+                "অবশিষ্ট ব্যালেন্স (টাকা)",
+                "মন্তব্য / বিবরণ",
+              ]
+            : [
+                "SL",
+                "Date",
+                "Bill No",
+                "Customer Name",
+                "Customer ID & Mobile",
+                "Items Count",
+                "Total Bill (BDT)",
+                "Payment (BDT)",
+                "Due (BDT)",
+                "Advance (BDT)",
+                "Due Recieved (BDT)",
+                "Remaining Balance (BDT)",
+                "Remarks / Note",
+              ],
         ];
 
         let tBill = 0;
@@ -1723,7 +1798,10 @@ export default function BillEntryPage() {
           const dueRecVal = Number(b.dueReceived || 0);
           const invoicePayment = Math.max(0, payment - dueRecVal - advVal);
           const itCount = Array.isArray(b.items) ? b.items.length : 0;
-          const cidMobile = [b.customer_id, b.customer_mobile].filter(Boolean).join(" | ") || "-";
+          const cidMobile = [
+            b.customer_id,
+            isBn ? toBengaliDigits(b.customer_mobile) : b.customer_mobile,
+          ].filter(Boolean).join(" | ") || "-";
 
           tBill += totalBill;
           tPaid += invoicePayment;
@@ -1731,25 +1809,30 @@ export default function BillEntryPage() {
           tAdv += advVal;
           tDueRec += dueRecVal;
 
-          const remBalStr =
-            runBal > 0
-              ? `Due: ${runBal.toFixed(2)}`
+          const remBalStr = isBn
+            ? runBal > 0
+              ? `বাকি: ${toBengaliCurrency(runBal)}`
               : runBal < 0
-              ? `Adv: ${Math.abs(runBal).toFixed(2)}`
-              : "0.00";
+              ? `অগ্রিম: ${toBengaliCurrency(Math.abs(runBal))}`
+              : "০"
+            : runBal > 0
+            ? `Due: ${runBal.toFixed(2)}`
+            : runBal < 0
+            ? `Adv: ${Math.abs(runBal).toFixed(2)}`
+            : "0.00";
 
           rows.push([
-            i + 1,
-            b.bill_date || "-",
-            b.bill_no || "-",
+            isBn ? toBengaliDigits(i + 1) : i + 1,
+            isBn ? toBengaliDigits(b.bill_date) : (b.bill_date || "-"),
+            isBn ? toBengaliDigits(b.bill_no) : (b.bill_no || "-"),
             b.customer_name || "-",
             cidMobile,
-            itCount,
-            totalBill,
-            invoicePayment,
-            dueVal,
-            advVal,
-            dueRecVal,
+            isBn ? toBengaliDigits(itCount) : itCount,
+            isBn ? toBengaliCurrency(totalBill) : totalBill,
+            isBn ? toBengaliCurrency(invoicePayment) : invoicePayment,
+            isBn ? toBengaliCurrency(dueVal) : dueVal,
+            isBn ? toBengaliCurrency(advVal) : advVal,
+            isBn ? toBengaliCurrency(dueRecVal) : dueRecVal,
             remBalStr,
             b.note || "",
           ]);
@@ -1757,59 +1840,60 @@ export default function BillEntryPage() {
 
         rows.push([]);
         rows.push([
-          "TOTAL",
+          isBn ? "সর্বমোট" : "TOTAL",
           "",
           "",
           "",
           "",
           "",
-          tBill,
-          tPaid,
-          tDue,
-          tAdv,
-          tDueRec,
+          isBn ? toBengaliCurrency(tBill) : tBill,
+          isBn ? toBengaliCurrency(tPaid) : tPaid,
+          isBn ? toBengaliCurrency(tDue) : tDue,
+          isBn ? toBengaliCurrency(tAdv) : tAdv,
+          isBn ? toBengaliCurrency(tDueRec) : tDueRec,
           "",
           "",
         ]);
 
-        const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws["!cols"] = [
-          { wch: 6 },
-          { wch: 12 },
-          { wch: 12 },
-          { wch: 22 },
-          { wch: 25 },
-          { wch: 12 },
-          { wch: 16 },
-          { wch: 16 },
-          { wch: 14 },
-          { wch: 14 },
-          { wch: 18 },
-          { wch: 20 },
-          { wch: 28 },
-        ];
-        return ws;
+        return rows;
       };
 
-      // Helper to format customer summary sheet
-      const makeCustomersSummarySheet = (targetGroups, sheetTitle) => {
+      // Helper to format customer summary sheet rows
+      const getCustomersSummarySheetRows = (targetGroups, sheetTitle) => {
         const rows = [
-          ["CHOWDHURY ENGINEERING WORKS"],
+          [isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS"],
           [sheetTitle],
-          [`Generated Date: ${today()} | Period: ${periodInfo}`],
-          [],
           [
-            "SL",
-            "Customer ID",
-            "Customer Name",
-            "Mobile No",
-            "Address",
-            "Invoices Count",
-            "Total Billed (BDT)",
-            "Total Paid (BDT)",
-            "Net Balance (BDT)",
-            "Balance Status",
+            isBn
+              ? `তৈরির তারিখ: ${toBengaliDigits(today())} | সময়কাল: ${periodInfo}`
+              : `Generated Date: ${today()} | Period: ${periodInfo}`,
           ],
+          [],
+          isBn
+            ? [
+                "ক্রমিক",
+                "কাস্টমার আইডি",
+                "গ্রাহকের নাম",
+                "মোবাইল নম্বর",
+                "ঠিকানা",
+                "চালানের সংখ্যা",
+                "মোট বিল (টাকা)",
+                "মোট পরিশোধ (টাকা)",
+                "নীট ব্যালেন্স (টাকা)",
+                "ব্যালেন্স স্ট্যাটাস",
+              ]
+            : [
+                "SL",
+                "Customer ID",
+                "Customer Name",
+                "Mobile No",
+                "Address",
+                "Invoices Count",
+                "Total Billed (BDT)",
+                "Total Paid (BDT)",
+                "Net Balance (BDT)",
+                "Balance Status",
+              ],
         ];
 
         let sl = 1;
@@ -1819,17 +1903,28 @@ export default function BillEntryPage() {
 
         targetGroups.forEach((g) => {
           const net = Number(g.netDue) || 0;
-          const status = net > 0 ? "DUE" : net < 0 ? "ADVANCE" : "SETTLED";
+          const status = isBn
+            ? net > 0
+              ? "বাকি"
+              : net < 0
+              ? "অগ্রিম"
+              : "পরিশোধ"
+            : net > 0
+            ? "DUE"
+            : net < 0
+            ? "ADVANCE"
+            : "SETTLED";
+
           rows.push([
-            sl++,
+            isBn ? toBengaliDigits(sl++) : sl++,
             g.customerId || "-",
             g.displayName || "-",
-            g.mobile || "-",
+            isBn ? toBengaliDigits(g.mobile) : (g.mobile || "-"),
             g.address || "-",
-            g.bills.length,
-            Number(g.totalBilled || 0),
-            Number(g.totalPaid || 0),
-            Number(Math.abs(net)),
+            isBn ? toBengaliDigits(g.bills.length) : g.bills.length,
+            isBn ? toBengaliCurrency(g.totalBilled) : Number(g.totalBilled || 0),
+            isBn ? toBengaliCurrency(g.totalPaid) : Number(g.totalPaid || 0),
+            isBn ? toBengaliCurrency(Math.abs(net)) : Number(Math.abs(net)),
             status,
           ]);
           sumBilled += Number(g.totalBilled || 0);
@@ -1839,32 +1934,63 @@ export default function BillEntryPage() {
 
         rows.push([]);
         rows.push([
-          "TOTAL",
+          isBn ? "সর্বমোট" : "TOTAL",
           "",
           "",
           "",
           "",
           "",
-          sumBilled,
-          sumPaid,
-          Math.abs(sumNet),
-          sumNet > 0 ? "NET DUE" : sumNet < 0 ? "NET ADVANCE" : "SETTLED",
+          isBn ? toBengaliCurrency(sumBilled) : sumBilled,
+          isBn ? toBengaliCurrency(sumPaid) : sumPaid,
+          isBn ? toBengaliCurrency(Math.abs(sumNet)) : Math.abs(sumNet),
+          isBn
+            ? sumNet > 0
+              ? "মোট বাকি"
+              : sumNet < 0
+              ? "মোট অগ্রিম"
+              : "পরিশোধ"
+            : sumNet > 0
+            ? "NET DUE"
+            : sumNet < 0
+            ? "NET ADVANCE"
+            : "SETTLED",
         ]);
 
-        const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws["!cols"] = [
-          { wch: 6 },
-          { wch: 22 },
-          { wch: 25 },
-          { wch: 16 },
-          { wch: 25 },
-          { wch: 14 },
-          { wch: 18 },
-          { wch: 18 },
-          { wch: 18 },
-          { wch: 16 },
-        ];
-        return ws;
+        return rows;
+      };
+
+      const setCols = (ws, isSummary = false) => {
+        if (isSummary) {
+          ws["!cols"] = [
+            { wch: 8 },
+            { wch: 22 },
+            { wch: 26 },
+            { wch: 18 },
+            { wch: 26 },
+            { wch: 16 },
+            { wch: 20 },
+            { wch: 20 },
+            { wch: 20 },
+            { wch: 18 },
+          ];
+        } else {
+          ws["!cols"] = [
+            { wch: 8 },
+            { wch: 16 },
+            { wch: 16 },
+            { wch: 24 },
+            { wch: 28 },
+            { wch: 14 },
+            { wch: 18 },
+            { wch: 18 },
+            { wch: 16 },
+            { wch: 16 },
+            { wch: 20 },
+            { wch: 22 },
+            { wch: 30 },
+          ];
+        }
+        applyExcelStyles(ws, isBn);
       };
 
       if (effectiveMode === "filtered") {
@@ -1876,20 +2002,24 @@ export default function BillEntryPage() {
         else if (balanceFilter === "advance") titleTag = "ADVANCE PAYMENT INVOICES";
         else if (balanceFilter === "paid") titleTag = "PAID INVOICES";
 
-        // Sheet 1: Filtered Invoices
-        XLSX.utils.book_append_sheet(
-          wb,
-          makeInvoicesSheet(filteredBills, titleTag),
-          "Invoices"
-        );
+        let invRows = getInvoicesSheetRows(filteredBills, titleTag);
+        let summaryRows = filteredGroups.length > 0 ? getCustomersSummarySheetRows(filteredGroups, "CUSTOMER BALANCES SUMMARY") : null;
 
-        // Sheet 2: Filtered Customers Summary
-        if (filteredGroups.length > 0) {
-          XLSX.utils.book_append_sheet(
-            wb,
-            makeCustomersSummarySheet(filteredGroups, "CUSTOMER BALANCES SUMMARY"),
-            "Customer Summary"
-          );
+        if (lang === "bn") {
+          invRows = await batchTranslateTable(invRows, (p) => setTranslatingProgress(Math.round(p * 0.6)));
+          if (summaryRows) {
+            summaryRows = await batchTranslateTable(summaryRows, (p) => setTranslatingProgress(60 + Math.round(p * 0.38)));
+          }
+        }
+
+        const wsInv = XLSX.utils.aoa_to_sheet(invRows);
+        setCols(wsInv, false);
+        XLSX.utils.book_append_sheet(wb, wsInv, lang === "bn" ? "ইনভয়েস তালিকা" : "Invoices");
+
+        if (summaryRows) {
+          const wsSum = XLSX.utils.aoa_to_sheet(summaryRows);
+          setCols(wsSum, true);
+          XLSX.utils.book_append_sheet(wb, wsSum, lang === "bn" ? "গ্রাহক ব্যালেন্স" : "Customer Summary");
         }
 
         const tag =
@@ -1898,73 +2028,114 @@ export default function BillEntryPage() {
             : durationMode !== "all"
             ? durationMode.charAt(0).toUpperCase() + durationMode.slice(1)
             : "Filtered";
-        XLSX.writeFile(wb, `CEW_${tag}_Invoices_${ymd(today())}.xlsx`);
+        const langTag = lang === "bn" ? "_Bangla" : "";
+        XLSX.writeFile(wb, `CEW_${tag}_Invoices_${ymd(today())}${langTag}.xlsx`);
       } else if (effectiveMode === "due") {
         const dueBills = durationFilteredBills.filter((b) => (Number(b.due_advance) || 0) > 0);
         const dueGroups = customerIdGroups.filter((g) => (Number(g.netDue) || 0) > 0);
-        XLSX.utils.book_append_sheet(
-          wb,
-          makeInvoicesSheet(dueBills, "OUTSTANDING DUE INVOICES"),
-          "Due Invoices"
-        );
-        XLSX.utils.book_append_sheet(
-          wb,
-          makeCustomersSummarySheet(dueGroups, "DUE CUSTOMERS SUMMARY"),
-          "Due Customers"
-        );
-        XLSX.writeFile(wb, `CEW_Due_Invoices_${ymd(today())}.xlsx`);
+
+        let invRows = getInvoicesSheetRows(dueBills, "OUTSTANDING DUE INVOICES");
+        let sumRows = getCustomersSummarySheetRows(dueGroups, "DUE CUSTOMERS SUMMARY");
+
+        if (lang === "bn") {
+          invRows = await batchTranslateTable(invRows, (p) => setTranslatingProgress(Math.round(p * 0.5)));
+          sumRows = await batchTranslateTable(sumRows, (p) => setTranslatingProgress(50 + Math.round(p * 0.48)));
+        }
+
+        const wsInv = XLSX.utils.aoa_to_sheet(invRows);
+        setCols(wsInv, false);
+        XLSX.utils.book_append_sheet(wb, wsInv, lang === "bn" ? "বাকি চালান" : "Due Invoices");
+
+        const wsSum = XLSX.utils.aoa_to_sheet(sumRows);
+        setCols(wsSum, true);
+        XLSX.utils.book_append_sheet(wb, wsSum, lang === "bn" ? "বাকি গ্রাহক" : "Due Customers");
+
+        const langTag = lang === "bn" ? "_Bangla" : "";
+        XLSX.writeFile(wb, `CEW_Due_Invoices_${ymd(today())}${langTag}.xlsx`);
       } else if (effectiveMode === "advance") {
         const advBills = durationFilteredBills.filter((b) => (Number(b.due_advance) || 0) < 0);
         const advGroups = customerIdGroups.filter((g) => (Number(g.netDue) || 0) < 0);
-        XLSX.utils.book_append_sheet(
-          wb,
-          makeInvoicesSheet(advBills, "ADVANCE PAYMENT INVOICES"),
-          "Adv Invoices"
-        );
-        XLSX.utils.book_append_sheet(
-          wb,
-          makeCustomersSummarySheet(advGroups, "ADVANCE CUSTOMERS SUMMARY"),
-          "Adv Customers"
-        );
-        XLSX.writeFile(wb, `CEW_Advance_Invoices_${ymd(today())}.xlsx`);
+
+        let invRows = getInvoicesSheetRows(advBills, "ADVANCE PAYMENT INVOICES");
+        let sumRows = getCustomersSummarySheetRows(advGroups, "ADVANCE CUSTOMERS SUMMARY");
+
+        if (lang === "bn") {
+          invRows = await batchTranslateTable(invRows, (p) => setTranslatingProgress(Math.round(p * 0.5)));
+          sumRows = await batchTranslateTable(sumRows, (p) => setTranslatingProgress(50 + Math.round(p * 0.48)));
+        }
+
+        const wsInv = XLSX.utils.aoa_to_sheet(invRows);
+        setCols(wsInv, false);
+        XLSX.utils.book_append_sheet(wb, wsInv, lang === "bn" ? "অগ্রিম চালান" : "Adv Invoices");
+
+        const wsSum = XLSX.utils.aoa_to_sheet(sumRows);
+        setCols(wsSum, true);
+        XLSX.utils.book_append_sheet(wb, wsSum, lang === "bn" ? "অগ্রিম গ্রাহক" : "Adv Customers");
+
+        const langTag = lang === "bn" ? "_Bangla" : "";
+        XLSX.writeFile(wb, `CEW_Advance_Invoices_${ymd(today())}${langTag}.xlsx`);
       } else {
         // Mode "all" (Master Report)
         const dueBills = bills.filter((b) => (Number(b.due_advance) || 0) > 0);
         const advBills = bills.filter((b) => (Number(b.due_advance) || 0) < 0);
-        XLSX.utils.book_append_sheet(
-          wb,
-          makeCustomersSummarySheet(customerIdGroups, "ALL CUSTOMER BALANCES SUMMARY"),
-          "Customer Balances"
-        );
-        XLSX.utils.book_append_sheet(
-          wb,
-          makeInvoicesSheet(dueBills, "OUTSTANDING DUE INVOICES"),
-          "Due Invoices"
-        );
-        XLSX.utils.book_append_sheet(
-          wb,
-          makeInvoicesSheet(advBills, "ADVANCE PAYMENT INVOICES"),
-          "Advance Invoices"
-        );
-        XLSX.utils.book_append_sheet(
-          wb,
-          makeInvoicesSheet(bills, "ALL RECORDED INVOICES"),
-          "All Invoices"
-        );
-        XLSX.writeFile(wb, `CEW_All_Invoices_Master_${ymd(today())}.xlsx`);
+
+        let sumRows = getCustomersSummarySheetRows(customerIdGroups, "ALL CUSTOMER BALANCES SUMMARY");
+        let dueRows = getInvoicesSheetRows(dueBills, "OUTSTANDING DUE INVOICES");
+        let advRows = getInvoicesSheetRows(advBills, "ADVANCE PAYMENT INVOICES");
+        let allRows = getInvoicesSheetRows(bills, "ALL RECORDED INVOICES");
+
+        if (lang === "bn") {
+          sumRows = await batchTranslateTable(sumRows, (p) => setTranslatingProgress(Math.round(p * 0.25)));
+          dueRows = await batchTranslateTable(dueRows, (p) => setTranslatingProgress(25 + Math.round(p * 0.25)));
+          advRows = await batchTranslateTable(advRows, (p) => setTranslatingProgress(50 + Math.round(p * 0.25)));
+          allRows = await batchTranslateTable(allRows, (p) => setTranslatingProgress(75 + Math.round(p * 0.23)));
+        }
+
+        const wsSum = XLSX.utils.aoa_to_sheet(sumRows);
+        setCols(wsSum, true);
+        XLSX.utils.book_append_sheet(wb, wsSum, lang === "bn" ? "গ্রাহক ব্যালেন্স" : "Customer Balances");
+
+        const wsDue = XLSX.utils.aoa_to_sheet(dueRows);
+        setCols(wsDue, false);
+        XLSX.utils.book_append_sheet(wb, wsDue, lang === "bn" ? "বকেয়া চালান" : "Due Invoices");
+
+        const wsAdv = XLSX.utils.aoa_to_sheet(advRows);
+        setCols(wsAdv, false);
+        XLSX.utils.book_append_sheet(wb, wsAdv, lang === "bn" ? "অগ্রিম চালান" : "Advance Invoices");
+
+        const wsAll = XLSX.utils.aoa_to_sheet(allRows);
+        setCols(wsAll, false);
+        XLSX.utils.book_append_sheet(wb, wsAll, lang === "bn" ? "সকল চালান" : "All Invoices");
+
+        const langTag = lang === "bn" ? "_Bangla" : "";
+        XLSX.writeFile(wb, `CEW_All_Invoices_Master_${ymd(today())}${langTag}.xlsx`);
       }
     } catch (err) {
       console.error("Excel export failed:", err);
       alert("Failed to export Excel file: " + err.message);
     } finally {
       setShowExcelMenu(false);
+      setTranslatingExcel(false);
+      setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
     }
   }
 
-  // Export Single Customer Complete Detailed Statement & Items to Excel (.xlsx)
+  // Trigger Customer Detailed Excel Export Modal
   function handleExportCustomerDetailedExcel(group) {
     if (!group) return;
+    openExcelLanguageModal("customer", group);
+  }
+
+  // Export Single Customer Complete Detailed Statement & Items to Excel (.xlsx); Supports 'en' and 'bn'
+  async function executeExportCustomerDetailedExcel(group, lang = "en") {
+    if (!group) return;
     try {
+      const isBn = lang === "bn";
+      if (isBn) {
+        setTranslatingExcel(true);
+        setTranslatingProgress(5);
+      }
+
       const wb = XLSX.utils.book_new();
 
       // Sort chronological (oldest bill to latest bill) for progressive ledger
@@ -1979,44 +2150,90 @@ export default function BillEntryPage() {
 
       const netStatusText =
         group.netDue > 0
-          ? `DUE (BDT ${fmt(group.netDue)})`
+          ? (isBn ? `বাকি: ${toBengaliCurrency(group.netDue)} টাকা` : `DUE (BDT ${fmt(group.netDue)})`)
           : group.netDue < 0
-          ? `ADVANCE (BDT ${fmt(Math.abs(group.netDue))})`
-          : "FULLY SETTLED (0)";
+          ? (isBn ? `অগ্রিম: ${toBengaliCurrency(Math.abs(group.netDue))} টাকা` : `ADVANCE (BDT ${fmt(Math.abs(group.netDue))})`)
+          : (isBn ? "পরিশোধিত (০)" : "FULLY SETTLED (0)");
 
-      /* =========================================================================
-         SHEET 1: DETAILED ITEMS & ORDERS STATEMENT
-         ========================================================================= */
-      const itemRows = [
-        ["CHOWDHURY ENGINEERING WORKS"],
-        ["CUSTOMER DETAILED ORDER & ITEM STATEMENT"],
-        [`Generated Date: ${today()} | Time: ${new Date().toLocaleTimeString()}`],
-        [],
-        ["CUSTOMER PROFILE", ""],
-        ["Customer ID:", group.customerId || "-", "", "Total Invoices:", chronologicalBills.length],
-        ["Customer Name:", group.displayName || "-", "", "Total Billed (BDT):", Number(group.totalBilled || 0)],
-        ["Mobile Number:", group.mobile || "-", "", "Total Paid (BDT):", Number(group.totalPaid || 0)],
-        ["Address:", group.address || "-", "", "Net Outstanding Status:", netStatusText],
-        [],
+      /* SHEET 1: DETAILED ITEMS & ORDERS STATEMENT */
+      let itemRows = [
+        [isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS"],
+        [isBn ? "গ্রাহকের বিস্তারিত চালান ও পণ্যের খতিয়ান" : "CUSTOMER DETAILED ORDER & ITEM STATEMENT"],
         [
-          "SL",
-          "Bill Date",
-          "Bill No",
-          "Item #",
-          "Item Description",
-          "Weight (KG)",
-          "Quantity",
-          "Unit Rate (BDT)",
-          "Item Subtotal (BDT)",
-          "Labour (BDT)",
-          "Transport (BDT)",
-          "Discount (BDT)",
-          "Bill Total (BDT)",
-          "Client Paid (BDT)",
-          "Bill Net Due/Adv (BDT)",
-          "Running Balance (BDT)",
-          "Remarks / Note",
+          isBn
+            ? `তৈরির তারিখ: ${toBengaliDigits(today())}`
+            : `Generated Date: ${today()} | Time: ${new Date().toLocaleTimeString()}`,
         ],
+        [],
+        [isBn ? "গ্রাহকের প্রোফাইল" : "CUSTOMER PROFILE", ""],
+        [
+          isBn ? "কাস্টমার আইডি:" : "Customer ID:",
+          group.customerId || "-", // Keep customer id in English as requested
+          "",
+          isBn ? "মোট চালানের সংখ্যা:" : "Total Invoices:",
+          isBn ? toBengaliDigits(chronologicalBills.length) : chronologicalBills.length,
+        ],
+        [
+          isBn ? "গ্রাহকের নাম:" : "Customer Name:",
+          group.displayName || "-",
+          "",
+          isBn ? "মোট বিল (টাকা):" : "Total Billed (BDT):",
+          isBn ? toBengaliCurrency(group.totalBilled) : Number(group.totalBilled || 0),
+        ],
+        [
+          isBn ? "মোবাইল নম্বর:" : "Mobile Number:",
+          isBn ? toBengaliDigits(group.mobile) : (group.mobile || "-"),
+          "",
+          isBn ? "মোট পরিশোধ (টাকা):" : "Total Paid (BDT):",
+          isBn ? toBengaliCurrency(group.totalPaid) : Number(group.totalPaid || 0),
+        ],
+        [
+          isBn ? "ঠিকানা:" : "Address:",
+          group.address || "-",
+          "",
+          isBn ? "বর্তমান ব্যালেন্স স্ট্যাটাস:" : "Net Outstanding Status:",
+          netStatusText,
+        ],
+        [],
+        isBn
+          ? [
+              "ক্রমিক",
+              "চালানের তারিখ",
+              "চালান নং",
+              "আইটেম ক্রম",
+              "পণ্যের বিবরণ",
+              "ওজন (কেজি)",
+              "পরিমাণ",
+              "দর / রেট (টাকা)",
+              "মোট মূল্য (টাকা)",
+              "লেবার চার্জ (টাকা)",
+              "পরিবহন খরচ (টাকা)",
+              "ছাড় (টাকা)",
+              "মোট বিল (টাকা)",
+              "পরিশোধ (টাকা)",
+              "বিলের বাকি/অগ্রিম (টাকা)",
+              "চলতি ব্যালেন্স (টাকা)",
+              "মন্তব্য / বিবরণ",
+            ]
+          : [
+              "SL",
+              "Bill Date",
+              "Bill No",
+              "Item #",
+              "Item Description",
+              "Weight (KG)",
+              "Quantity",
+              "Unit Rate (BDT)",
+              "Item Subtotal (BDT)",
+              "Labour (BDT)",
+              "Transport (BDT)",
+              "Discount (BDT)",
+              "Bill Total (BDT)",
+              "Client Paid (BDT)",
+              "Bill Net Due/Adv (BDT)",
+              "Running Balance (BDT)",
+              "Remarks / Note",
+            ],
       ];
 
       let itemSl = 1;
@@ -2045,28 +2262,26 @@ export default function BillEntryPage() {
         sumPaid += paidVal;
 
         if (items.length === 0) {
-          // Bill without specific item entries
           itemRows.push([
-            itemSl++,
-            b.bill_date || "-",
-            b.bill_no || b.id || "-",
+            isBn ? toBengaliDigits(itemSl++) : itemSl++,
+            isBn ? toBengaliDigits(b.bill_date) : (b.bill_date || "-"),
+            isBn ? toBengaliDigits(b.bill_no || b.id) : (b.bill_no || b.id || "-"),
             "-",
-            "(No line-item breakdown)",
-            "-",
-            "-",
+            isBn ? "(বিস্তারিত পণ্যের তালিকা নেই)" : "(No line-item breakdown)",
             "-",
             "-",
-            labourVal,
-            transportVal,
-            discountVal,
-            billTotalVal,
-            paidVal,
-            netVal,
-            runningVal,
+            "-",
+            "-",
+            isBn ? toBengaliCurrency(labourVal) : labourVal,
+            isBn ? toBengaliCurrency(transportVal) : transportVal,
+            isBn ? toBengaliCurrency(discountVal) : discountVal,
+            isBn ? toBengaliCurrency(billTotalVal) : billTotalVal,
+            isBn ? toBengaliCurrency(paidVal) : paidVal,
+            isBn ? toBengaliCurrency(netVal) : netVal,
+            isBn ? toBengaliCurrency(runningVal) : runningVal,
             b.note || "",
           ]);
         } else {
-          // Bill has 1 or more items
           items.forEach((it, idx) => {
             const wNum = parseFloat(it.weight);
             if (!isNaN(wNum)) totalItemWeight += wNum;
@@ -2074,38 +2289,44 @@ export default function BillEntryPage() {
             totalItemSubtotal += subNum;
 
             if (idx === 0) {
-              // First item row contains bill header figures
               itemRows.push([
-                itemSl++,
-                b.bill_date || "-",
-                b.bill_no || b.id || "-",
-                idx + 1,
+                isBn ? toBengaliDigits(itemSl++) : itemSl++,
+                isBn ? toBengaliDigits(b.bill_date) : (b.bill_date || "-"),
+                isBn ? toBengaliDigits(b.bill_no || b.id) : (b.bill_no || b.id || "-"),
+                isBn ? toBengaliDigits(idx + 1) : idx + 1,
                 it.name || "Item",
-                !isNaN(wNum) ? wNum : (it.weight || "-"),
-                it.quantity || "-",
-                it.rate !== "" && it.rate !== null && !isNaN(Number(it.rate)) ? Number(it.rate) : (it.rate || "-"),
-                subNum,
-                labourVal,
-                transportVal,
-                discountVal,
-                billTotalVal,
-                paidVal,
-                netVal,
-                runningVal,
+                !isNaN(wNum)
+                  ? (isBn ? toBengaliDigits(wNum) : wNum)
+                  : (isBn ? toBengaliDigits(it.weight) : (it.weight || "-")),
+                isBn ? toBengaliDigits(it.quantity) : (it.quantity || "-"),
+                it.rate !== "" && it.rate !== null && !isNaN(Number(it.rate))
+                  ? (isBn ? toBengaliCurrency(it.rate) : Number(it.rate))
+                  : (isBn ? toBengaliDigits(it.rate) : (it.rate || "-")),
+                isBn ? toBengaliCurrency(subNum) : subNum,
+                isBn ? toBengaliCurrency(labourVal) : labourVal,
+                isBn ? toBengaliCurrency(transportVal) : transportVal,
+                isBn ? toBengaliCurrency(discountVal) : discountVal,
+                isBn ? toBengaliCurrency(billTotalVal) : billTotalVal,
+                isBn ? toBengaliCurrency(paidVal) : paidVal,
+                isBn ? toBengaliCurrency(netVal) : netVal,
+                isBn ? toBengaliCurrency(runningVal) : runningVal,
                 b.note || "",
               ]);
             } else {
-              // Subsequent items under the same bill
               itemRows.push([
                 "",
-                b.bill_date || "-",
-                b.bill_no || b.id || "-",
-                idx + 1,
+                isBn ? toBengaliDigits(b.bill_date) : (b.bill_date || "-"),
+                isBn ? toBengaliDigits(b.bill_no || b.id) : (b.bill_no || b.id || "-"),
+                isBn ? toBengaliDigits(idx + 1) : idx + 1,
                 it.name || "Item",
-                !isNaN(wNum) ? wNum : (it.weight || "-"),
-                it.quantity || "-",
-                it.rate !== "" && it.rate !== null && !isNaN(Number(it.rate)) ? Number(it.rate) : (it.rate || "-"),
-                subNum,
+                !isNaN(wNum)
+                  ? (isBn ? toBengaliDigits(wNum) : wNum)
+                  : (isBn ? toBengaliDigits(it.weight) : (it.weight || "-")),
+                isBn ? toBengaliDigits(it.quantity) : (it.quantity || "-"),
+                it.rate !== "" && it.rate !== null && !isNaN(Number(it.rate))
+                  ? (isBn ? toBengaliCurrency(it.rate) : Number(it.rate))
+                  : (isBn ? toBengaliDigits(it.rate) : (it.rate || "-")),
+                isBn ? toBengaliCurrency(subNum) : subNum,
                 "",
                 "",
                 "",
@@ -2129,70 +2350,66 @@ export default function BillEntryPage() {
           : Number(group.netDue || 0);
 
       itemRows.push([
-        "TOTAL",
+        isBn ? "সর্বমোট" : "TOTAL",
         "",
         "",
         "",
-        "SUMMARY",
-        totalItemWeight > 0 ? totalItemWeight : "",
+        isBn ? "সারসংক্ষেপ" : "SUMMARY",
+        totalItemWeight > 0 ? (isBn ? toBengaliDigits(totalItemWeight) : totalItemWeight) : "",
         "",
         "",
-        totalItemSubtotal,
-        sumLabour,
-        sumTransport,
-        sumDiscount,
-        sumBillTotal,
-        sumPaid,
-        Number(group.netDue || 0),
-        finalRunningBalance,
+        isBn ? toBengaliCurrency(totalItemSubtotal) : totalItemSubtotal,
+        isBn ? toBengaliCurrency(sumLabour) : sumLabour,
+        isBn ? toBengaliCurrency(sumTransport) : sumTransport,
+        isBn ? toBengaliCurrency(sumDiscount) : sumDiscount,
+        isBn ? toBengaliCurrency(sumBillTotal) : sumBillTotal,
+        isBn ? toBengaliCurrency(sumPaid) : sumPaid,
+        isBn ? toBengaliCurrency(group.netDue || 0) : Number(group.netDue || 0),
+        isBn ? toBengaliCurrency(finalRunningBalance) : finalRunningBalance,
         netStatusText,
       ]);
 
-      const wsItems = XLSX.utils.aoa_to_sheet(itemRows);
-      wsItems["!cols"] = [
-        { wch: 6 },   // SL
-        { wch: 13 },  // Date
-        { wch: 12 },  // Bill No
-        { wch: 8 },   // Item #
-        { wch: 28 },  // Item Description
-        { wch: 14 },  // Weight (kg)
-        { wch: 12 },  // Quantity
-        { wch: 15 },  // Unit Rate
-        { wch: 18 },  // Subtotal
-        { wch: 14 },  // Labour
-        { wch: 14 },  // Transport
-        { wch: 14 },  // Discount
-        { wch: 16 },  // Bill Total
-        { wch: 16 },  // Client Paid
-        { wch: 18 },  // Bill Net Due/Adv
-        { wch: 18 },  // Running Balance
-        { wch: 28 },  // Remarks
-      ];
-      XLSX.utils.book_append_sheet(wb, wsItems, "Detailed Items Breakdown");
-
-      /* =========================================================================
-         SHEET 2: INVOICES & PAYMENT LEDGER (ONE ROW PER BILL)
-         ========================================================================= */
-      const ledgerRows = [
-        ["CHOWDHURY ENGINEERING WORKS"],
-        ["CUSTOMER INVOICES & PAYMENT ACCOUNT LEDGER"],
-        [`Customer: ${group.displayName} (${group.customerId}) | Mobile: ${group.mobile || "-"} | Date: ${today()}`],
-        [],
+      /* SHEET 2: INVOICES & PAYMENT LEDGER (ONE ROW PER BILL) */
+      let ledgerRows = [
+        [isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS"],
+        [isBn ? "গ্রাহকের লেনদেন ও খতিয়ান হিসাব" : "CUSTOMER INVOICES & PAYMENT ACCOUNT LEDGER"],
         [
-          "SL",
-          "Bill Date",
-          "Bill No",
-          "Items Breakdown Summary",
-          "Labour (BDT)",
-          "Transport (BDT)",
-          "Discount (BDT)",
-          "Total Bill (BDT)",
-          "Payment (BDT)",
-          "Bill Due / Adv (BDT)",
-          "Running Balance (BDT)",
-          "Status",
-          "Remarks / Note",
+          isBn
+            ? `গ্রাহক: ${group.displayName} (${group.customerId}) | মোবাইল: ${toBengaliDigits(group.mobile || "-")} | তারিখ: ${toBengaliDigits(today())}`
+            : `Customer: ${group.displayName} (${group.customerId}) | Mobile: ${group.mobile || "-"} | Date: ${today()}`,
         ],
+        [],
+        isBn
+          ? [
+              "ক্রমিক",
+              "চালানের তারিখ",
+              "চালান নং",
+              "পণ্যসমূহের বিবরণ",
+              "লেবার চার্জ (টাকা)",
+              "পরিবহন খরচ (টাকা)",
+              "ছাড় (টাকা)",
+              "মোট বিল (টাকা)",
+              "পরিশোধ (টাকা)",
+              "বিলের বাকি/অগ্রিম (টাকা)",
+              "চলতি ব্যালেন্স (টাকা)",
+              "স্ট্যাটাস",
+              "মন্তব্য / বিবরণ",
+            ]
+          : [
+              "SL",
+              "Bill Date",
+              "Bill No",
+              "Items Breakdown Summary",
+              "Labour (BDT)",
+              "Transport (BDT)",
+              "Discount (BDT)",
+              "Total Bill (BDT)",
+              "Payment (BDT)",
+              "Bill Due / Adv (BDT)",
+              "Running Balance (BDT)",
+              "Status",
+              "Remarks / Note",
+            ],
       ];
 
       chronologicalBills.forEach((b, i) => {
@@ -2202,29 +2419,41 @@ export default function BillEntryPage() {
             ? items
                 .map(
                   (it) =>
-                    `${it.name || "Item"}${it.weight ? ` [${it.weight}kg]` : ""}${
-                      it.quantity ? ` [${it.quantity}pcs]` : ""
-                    }${it.rate ? ` @${it.rate}` : ""}`
+                    `${it.name || "Item"}${it.weight ? ` [${isBn ? toBengaliDigits(it.weight) : it.weight}kg]` : ""}${
+                      it.quantity ? ` [${isBn ? toBengaliDigits(it.quantity) : it.quantity}pcs]` : ""
+                    }${it.rate ? ` @${isBn ? toBengaliCurrency(it.rate) : it.rate}` : ""}`
                 )
                 .join("; ")
+            : isBn
+            ? "(বিস্তারিত পণ্য নেই)"
             : "(No line items)";
 
         const runBal =
           b.runningBalance !== undefined ? Number(b.runningBalance) : Number(b.due_advance) || 0;
-        const bStatus = runBal > 0 ? "DUE" : runBal < 0 ? "ADVANCE" : "SETTLED";
+        const bStatus = isBn
+          ? runBal > 0
+            ? "বাকি"
+            : runBal < 0
+            ? "অগ্রিম"
+            : "পরিশোধ"
+          : runBal > 0
+          ? "DUE"
+          : runBal < 0
+          ? "ADVANCE"
+          : "SETTLED";
 
         ledgerRows.push([
-          i + 1,
-          b.bill_date || "-",
-          b.bill_no || b.id || "-",
+          isBn ? toBengaliDigits(i + 1) : i + 1,
+          isBn ? toBengaliDigits(b.bill_date) : (b.bill_date || "-"),
+          isBn ? toBengaliDigits(b.bill_no || b.id) : (b.bill_no || b.id || "-"),
           itemSummaryText,
-          Number(b.labour_charge || 0),
-          Number(b.transport_cost || 0),
-          Number(b.discount || 0),
-          Number(b.total_bill || 0),
-          Number(b.client_payment || 0),
-          Number(b.due_advance || 0),
-          runBal,
+          isBn ? toBengaliCurrency(b.labour_charge || 0) : Number(b.labour_charge || 0),
+          isBn ? toBengaliCurrency(b.transport_cost || 0) : Number(b.transport_cost || 0),
+          isBn ? toBengaliCurrency(b.discount || 0) : Number(b.discount || 0),
+          isBn ? toBengaliCurrency(b.total_bill || 0) : Number(b.total_bill || 0),
+          isBn ? toBengaliCurrency(b.client_payment || 0) : Number(b.client_payment || 0),
+          isBn ? toBengaliCurrency(b.due_advance || 0) : Number(b.due_advance || 0),
+          isBn ? toBengaliCurrency(runBal) : runBal,
           bStatus,
           b.note || "",
         ]);
@@ -2232,46 +2461,79 @@ export default function BillEntryPage() {
 
       ledgerRows.push([]);
       ledgerRows.push([
-        "TOTAL",
+        isBn ? "সর্বমোট" : "TOTAL",
         "",
         "",
-        `${chronologicalBills.length} Invoices Recorded`,
-        sumLabour,
-        sumTransport,
-        sumDiscount,
-        sumBillTotal,
-        sumPaid,
-        Number(group.netDue || 0),
-        finalRunningBalance,
+        isBn ? `${toBengaliDigits(chronologicalBills.length)} টি চালান সংরক্ষিত` : `${chronologicalBills.length} Invoices Recorded`,
+        isBn ? toBengaliCurrency(sumLabour) : sumLabour,
+        isBn ? toBengaliCurrency(sumTransport) : sumTransport,
+        isBn ? toBengaliCurrency(sumDiscount) : sumDiscount,
+        isBn ? toBengaliCurrency(sumBillTotal) : sumBillTotal,
+        isBn ? toBengaliCurrency(sumPaid) : sumPaid,
+        isBn ? toBengaliCurrency(group.netDue || 0) : Number(group.netDue || 0),
+        isBn ? toBengaliCurrency(finalRunningBalance) : finalRunningBalance,
         netStatusText,
         "",
       ]);
 
+      if (isBn) {
+        itemRows = await batchTranslateTable(itemRows, (p) => setTranslatingProgress(Math.round(p * 0.55)));
+        ledgerRows = await batchTranslateTable(ledgerRows, (p) => setTranslatingProgress(55 + Math.round(p * 0.43)));
+      }
+
+      const wsItems = XLSX.utils.aoa_to_sheet(itemRows);
+      wsItems["!cols"] = [
+        { wch: 8 },
+        { wch: 15 },
+        { wch: 14 },
+        { wch: 10 },
+        { wch: 30 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 16 },
+        { wch: 18 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 28 },
+      ];
+      applyExcelStyles(wsItems, isBn);
+      XLSX.utils.book_append_sheet(wb, wsItems, isBn ? "পণ্যের বিস্তারিত" : "Detailed Items Breakdown");
+
       const wsLedger = XLSX.utils.aoa_to_sheet(ledgerRows);
       wsLedger["!cols"] = [
-        { wch: 6 },
-        { wch: 13 },
-        { wch: 12 },
-        { wch: 38 },
+        { wch: 8 },
+        { wch: 15 },
         { wch: 14 },
-        { wch: 14 },
-        { wch: 14 },
+        { wch: 40 },
         { wch: 16 },
         { wch: 16 },
+        { wch: 14 },
+        { wch: 18 },
+        { wch: 18 },
         { wch: 18 },
         { wch: 18 },
         { wch: 14 },
         { wch: 28 },
       ];
-      XLSX.utils.book_append_sheet(wb, wsLedger, "Invoices Ledger");
+      applyExcelStyles(wsLedger, isBn);
+      XLSX.utils.book_append_sheet(wb, wsLedger, lang === "bn" ? "লেনদেন খতিয়ান" : "Invoices Ledger");
 
       // Save workbook to file
       const safeName = (group.displayName || "Customer").replace(/[^a-zA-Z0-9_-]/g, "_");
       const safeCid = (group.customerId || "CID").replace(/[^a-zA-Z0-9_-]/g, "_");
-      XLSX.writeFile(wb, `CEW_${safeCid}_${safeName}_Detailed_Statement_${ymd(today())}.xlsx`);
+      const langTag = lang === "bn" ? "_Bangla" : "";
+      XLSX.writeFile(wb, `CEW_${safeCid}_${safeName}_Detailed_Statement_${ymd(today())}${langTag}.xlsx`);
     } catch (err) {
       console.error("Export customer detailed excel failed:", err);
       alert("Failed to export detailed customer Excel statement: " + err.message);
+    } finally {
+      setTranslatingExcel(false);
+      setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
     }
   }
 
@@ -2325,22 +2587,22 @@ export default function BillEntryPage() {
       </header>
 
 
-      {/* Top Cards Filter Bar */}
+      {/* Top Filter Bar (Synchronized with Invoices Table) */}
       <div className="ex-kpi-filter-bar">
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span className="ex-kpi-filter-label">
-            <BarChartIcon size={15} style={{ color: "#2563eb" }} /> Overview Cards Filter:
+            <BarChartIcon size={15} style={{ color: "#2563eb" }} /> Filter Period:
           </span>
           <div className="be-duration-group">
             {KPI_MODES.map((m) => (
               <button
                 key={m.key}
                 type="button"
-                className={`be-duration-btn ${kpiMode === m.key ? "active" : ""}`}
+                className={`be-duration-btn ${durationMode === m.key ? "active" : ""}`}
                 onClick={() => {
-                  setKpiMode(m.key);
+                  setDurationMode(m.key);
                   if (m.key === "week") {
-                    setKpiRef(weekStart(kpiRef || today()));
+                    setTableRef(weekStart(tableRef || today()));
                   }
                 }}
               >
@@ -2350,12 +2612,12 @@ export default function BillEntryPage() {
           </div>
         </div>
 
-        {kpiMode !== "all" && (
+        {durationMode !== "all" && (
           <div className="ex-nav-group">
             <button
               type="button"
               className="ex-arrow"
-              onClick={() => setKpiRef(shiftKpiRef(kpiMode, kpiRef, -1))}
+              onClick={() => setTableRef(shiftKpiRef(durationMode, tableRef, -1))}
               aria-label="Previous"
               title="Previous period"
             >
@@ -2375,12 +2637,12 @@ export default function BillEntryPage() {
                 textAlign: "center",
               }}
             >
-              {kpiRange.label}
+              {tableRange.label}
             </span>
             <button
               type="button"
               className="ex-arrow"
-              onClick={() => setKpiRef(shiftKpiRef(kpiMode, kpiRef, 1))}
+              onClick={() => setTableRef(shiftKpiRef(durationMode, tableRef, 1))}
               aria-label="Next"
               title="Next period"
             >
@@ -2391,15 +2653,30 @@ export default function BillEntryPage() {
               className="be-nav-btn"
               style={{ fontSize: "0.76rem", padding: "4px 10px" }}
               onClick={() => {
-                if (kpiMode === "week") {
-                  setKpiRef(weekStart(today()));
+                if (durationMode === "week") {
+                  setTableRef(weekStart(today()));
                 } else {
-                  setKpiRef(today());
+                  setTableRef(today());
                 }
               }}
             >
               Current
             </button>
+            <input
+              type="date"
+              className="be-input"
+              style={{ width: 125, padding: "3px 6px", fontSize: "0.76rem", height: 28 }}
+              value={tableRef}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                if (durationMode === "week") {
+                  setTableRef(weekStart(e.target.value));
+                } else {
+                  setTableRef(e.target.value);
+                }
+              }}
+              aria-label="Jump to date"
+            />
           </div>
         )}
       </div>
@@ -3254,10 +3531,10 @@ export default function BillEntryPage() {
             {/* Excel Export Split Button */}
             <div className="be-excel-dropdown-wrap" ref={excelMenuRef}>
               <div style={{ display: "inline-flex", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
-                {/* Main Download Button: Automatically exports currently filtered data */}
+                {/* Main Download Button: Opens language selection modal */}
                 <button
                   type="button"
-                  onClick={() => handleExportExcel("auto")}
+                  onClick={() => openExcelLanguageModal("auto")}
                   className="be-btn-excel"
                   style={{
                     borderTopRightRadius: 0,
@@ -3309,7 +3586,7 @@ export default function BillEntryPage() {
                   {(balanceFilter !== "all" || durationMode !== "all" || Boolean(search.trim())) && (
                     <button
                       type="button"
-                      onClick={() => handleExportExcel("filtered")}
+                      onClick={() => openExcelLanguageModal("filtered")}
                       className="be-excel-item highlight"
                     >
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3325,7 +3602,7 @@ export default function BillEntryPage() {
                   {/* Option 2: Complete Master Report */}
                   <button
                     type="button"
-                    onClick={() => handleExportExcel("all")}
+                    onClick={() => openExcelLanguageModal("all")}
                     className={`be-excel-item ${!(balanceFilter !== "all" || durationMode !== "all" || Boolean(search.trim())) ? "highlight" : ""}`}
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3345,7 +3622,7 @@ export default function BillEntryPage() {
                   {/* Option 3: Due Accounts Only */}
                   <button
                     type="button"
-                    onClick={() => handleExportExcel("due")}
+                    onClick={() => openExcelLanguageModal("due")}
                     className="be-excel-item"
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3362,7 +3639,7 @@ export default function BillEntryPage() {
                   {/* Option 4: Advance Accounts Only */}
                   <button
                     type="button"
-                    onClick={() => handleExportExcel("advance")}
+                    onClick={() => openExcelLanguageModal("advance")}
                     className="be-excel-item"
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3662,7 +3939,29 @@ export default function BillEntryPage() {
                           </div>
                         </td>
                         <td style={{ whiteSpace: "nowrap", color: "#475569", fontSize: "0.8rem" }}>{b.bill_date || "—"}</td>
-                        <td style={{ fontWeight: 700, color: "#1e293b", whiteSpace: "nowrap" }}>{b.bill_no || "—"}</td>
+                        <td style={{ fontWeight: 700, color: "#1e293b", whiteSpace: "nowrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap" }}>
+                            <span>{b.bill_no || "—"}</span>
+                            {b.is_opening_balance && (
+                              <span style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                fontSize: "0.65rem",
+                                fontWeight: 700,
+                                background: "#f0f9ff",
+                                color: "#0369a1",
+                                border: "1px solid #bae6fd",
+                                borderRadius: "4px",
+                                padding: "1px 5px",
+                                whiteSpace: "nowrap",
+                                letterSpacing: "0.02em",
+                              }}>
+                                📋 Opening Balance
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td>
                           <div style={{ fontWeight: 700, color: "#0f172a" }}>{b.customer_name || "—"}</div>
                           {b.customer_address && (
@@ -5530,7 +5829,7 @@ export default function BillEntryPage() {
                       {/* Modal Quick Export Excel */}
                       <button
                         type="button"
-                        onClick={() => handleExportExcel(modalBalanceFilter === "all" ? "all" : modalBalanceFilter)}
+                        onClick={() => openExcelLanguageModal(modalBalanceFilter === "all" ? "all" : modalBalanceFilter)}
                         className="be-btn-excel"
                         style={{ padding: "7px 12px", fontSize: "0.8rem" }}
                         title="Download Customers Directory to Excel"
@@ -5887,6 +6186,104 @@ export default function BillEntryPage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* Excel Language Selection Modal & Translation Progress */}
+      {excelLangModal.isOpen && (
+        <div
+          className="excel-lang-overlay"
+          onClick={() => {
+            if (!translatingExcel) setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+          }}
+        >
+          <div className="excel-lang-card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ background: "#dcfce7", color: "#15803d", width: 38, height: 38, borderRadius: 10, display: "grid", placeItems: "center" }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 800, color: "#0f172a" }}>
+                    Select Download Language
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "0.78rem", color: "#64748b" }}>
+                    {excelLangModal.title}
+                  </p>
+                </div>
+              </div>
+              {!translatingExcel && (
+                <button
+                  type="button"
+                  onClick={() => setExcelLangModal((prev) => ({ ...prev, isOpen: false }))}
+                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "#94a3b8", padding: 4 }}
+                >
+                  <XIcon size={18} />
+                </button>
+              )}
+            </div>
+
+            {translatingExcel ? (
+              <div style={{ padding: "16px 0", textAlign: "center" }}>
+                <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#1e3a8a", marginBottom: 6 }}>
+                  Translating and preparing Excel file... ({translatingProgress}%)
+                </div>
+                <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "0 0 12px" }}>
+                  Translating data entries into Bengali and styling the workbook. Please wait...
+                </p>
+                <div className="excel-lang-progress-track">
+                  <div className="excel-lang-progress-bar" style={{ width: `${translatingProgress}%` }} />
+                </div>
+              </div>
+            ) : (
+              <>
+                <p style={{ fontSize: "0.85rem", color: "#475569", margin: "10px 0 16px" }}>
+                  Choose your preferred language format for this Excel (.xlsx) workbook export:
+                </p>
+
+                <div className="excel-lang-options">
+                  <button
+                    type="button"
+                    className="excel-lang-btn bn"
+                    onClick={() => {
+                      if (excelLangModal.customerGroup) {
+                        executeExportCustomerDetailedExcel(excelLangModal.customerGroup, "bn");
+                      } else {
+                        executeExportExcel(excelLangModal.mode, "bn");
+                      }
+                    }}
+                  >
+                    <span style={{ fontSize: "1.3rem", marginBottom: 4 }}>🇧🇩</span>
+                    <strong style={{ fontSize: "0.95rem", color: "#1e3a8a" }}>Bangla</strong>
+                    <span className="excel-lang-badge" style={{ background: "#dbeafe", color: "#1e40af" }}>
+                      Smart Translation
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="excel-lang-btn"
+                    onClick={() => {
+                      if (excelLangModal.customerGroup) {
+                        executeExportCustomerDetailedExcel(excelLangModal.customerGroup, "en");
+                      } else {
+                        executeExportExcel(excelLangModal.mode, "en");
+                      }
+                    }}
+                  >
+                    <span style={{ fontSize: "1.3rem", marginBottom: 4 }}>🇬🇧</span>
+                    <strong style={{ fontSize: "0.95rem", color: "#0f172a" }}>English</strong>
+                    <span className="excel-lang-badge" style={{ background: "#f1f5f9", color: "#475569" }}>
+                      Original Data
+                    </span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

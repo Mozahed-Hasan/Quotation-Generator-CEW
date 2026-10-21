@@ -34,6 +34,7 @@ export async function POST(req) {
       client_payment,
       due_advance,
       note,
+      is_opening_balance,
     } = body;
 
     if (!customer_name || !customer_name.trim()) {
@@ -59,6 +60,7 @@ export async function POST(req) {
       client_payment: Math.round((Number(client_payment) || 0) * 100) / 100,
       due_advance: Math.abs(Number(due_advance) || 0) < 0.005 ? 0 : Math.round((Number(due_advance) || 0) * 100) / 100,
       note: note ? note.trim() : "",
+      is_opening_balance: is_opening_balance === true,
     });
 
     return NextResponse.json({ ok: true, id: saved.id });
@@ -111,6 +113,7 @@ export async function PUT(req) {
       client_payment: Math.round((Number(data.client_payment) || 0) * 100) / 100,
       due_advance: Math.abs(Number(data.due_advance) || 0) < 0.005 ? 0 : Math.round((Number(data.due_advance) || 0) * 100) / 100,
       note: data.note ? data.note.trim() : "",
+      is_opening_balance: data.is_opening_balance === true,
     });
 
     return NextResponse.json({ ok: true });

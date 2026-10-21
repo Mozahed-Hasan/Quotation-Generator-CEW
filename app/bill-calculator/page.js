@@ -200,7 +200,7 @@ export default function Home() {
   const [clientTypes, setClientTypes] = useState({}); // { [name]: "dealer" | "client" }
   const [showNewClientModal, setShowNewClientModal] = useState(false);
   const [newClientInput, setNewClientInput] = useState("");
-  const [newClientType, setNewClientType] = useState("dealer"); // "dealer" | "client"
+  const [newClientType, setNewClientType] = useState("supplier"); // "supplier" | "dealer"
   const [selectedEntryForModal, setSelectedEntryForModal] = useState(null);
   const [isEditingModal, setIsEditingModal] = useState(false);
   const [editModalData, setEditModalData] = useState(null);
@@ -208,13 +208,13 @@ export default function Home() {
   const [modalErr, setModalErr] = useState("");
   const dropdownRef = useRef(null);
 
-  // Helper for determining whether an entity is supplier or dealer
+  // Helper for determining entity type (all entities are treated as supplier)
   const getEntityType = (name) => {
     const t = clientTypes[name];
-    if (t === "supplier" || t === "client") return "supplier";
-    return "dealer";
+    if (t === "dealer") return "dealer";
+    return "supplier";
   };
-  const isSelectedSupplier = getEntityType(selectedClient) === "supplier";
+  const isSelectedSupplier = getEntityType(selectedClient) !== "dealer";
   const entityLabel = isSelectedSupplier ? "Supplier" : "Dealer";
   const entityLabelEn = entityLabel;
   const entityLabelUpper = isSelectedSupplier ? "SUPPLIER" : "DEALER";
@@ -354,7 +354,7 @@ export default function Home() {
     setShowDropdown(false);
     setShowNewClientModal(false);
     setNewClientInput("");
-    setNewClientType("dealer");
+    setNewClientType("supplier");
   }
 
   // Transactions filtered ONLY by selected client, sorted latest-first (newest on top)
@@ -487,7 +487,7 @@ export default function Home() {
   async function submit(e) {
     e.preventDefault();
     if (!selectedClient.trim()) {
-      setErr("Please select a dealer or supplier first");
+      setErr("Please select a supplier first");
       return;
     }
     setBusy(true);
@@ -941,10 +941,10 @@ export default function Home() {
     document.body.removeChild(link);
   }
 
-  // Download all dealers & suppliers with separate worksheets per dealer/supplier in a single Excel file
+  // Download all suppliers with separate worksheets per supplier in a single Excel file
   function downloadAllDealersData() {
     if (clients.length === 0) {
-      alert("No dealers or suppliers available to export.");
+      alert("No suppliers available to export.");
       return;
     }
 
@@ -1123,7 +1123,7 @@ export default function Home() {
       const ws = XLSX.utils.aoa_to_sheet(wsData);
 
       // Sanitize sheet name: Excel sheet names cannot exceed 31 chars or contain : \ / ? * [ ]
-      let cleanSheetName = (cName || "Dealer")
+      let cleanSheetName = (cName || "Supplier")
         .replace(/[:\\/?*\[\]]/g, "_")
         .trim()
         .slice(0, 30);
@@ -1138,7 +1138,7 @@ export default function Home() {
       XLSX.utils.book_append_sheet(wb, ws, uniqueName);
     });
 
-    XLSX.writeFile(wb, `All_Dealers_Clients_Ledger_${today()}.xlsx`);
+    XLSX.writeFile(wb, `All_Suppliers_Ledger_${today()}.xlsx`);
   }
 
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -1215,7 +1215,7 @@ export default function Home() {
           </div>
           <div>
             <h1 className="header-title">Purchase</h1>
-            <p className="sub">Chowdhury Engineering Works • Dealer &amp; Supplier Ledger</p>
+            <p className="sub">Chowdhury Engineering Works • Supplier Ledger</p>
           </div>
         </div>
         <div className="header-actions">
@@ -1225,11 +1225,11 @@ export default function Home() {
         </div>
       </header>
 
-      {/* TOP SECTION: Dealer / Supplier Selection Dropdown with Autocomplete & Add Option */}
+      {/* TOP SECTION: Supplier Selection Dropdown with Autocomplete & Add Option */}
       <section className="client-hero" ref={dropdownRef}>
         <div className="client-hero-header">
           <div className="client-hero-title">
-            <UserIcon size={16} /> Select Dealer / Supplier
+            <UserIcon size={16} /> Select Supplier
             {clients.length > 0 && (
               <span className="client-count-pill" title={`Total Registered: ${clients.length}`}>
                 {clients.length}
@@ -1240,10 +1240,10 @@ export default function Home() {
             type="button"
             className="btn-new-client"
             onClick={() => {
-              setNewClientType("dealer");
+              setNewClientType("supplier");
               setShowNewClientModal(true);
             }}
-            title="Add New Dealer / Supplier"
+            title="Add New Supplier"
           >
             <PlusIcon size={12} /> Add
           </button>
@@ -1255,7 +1255,7 @@ export default function Home() {
               id="client-search-input"
               className="client-input"
               type="text"
-              placeholder="Search or type dealer/supplier name..."
+              placeholder="Search or type supplier name..."
               value={clientSearch}
               onChange={(e) => {
                 setClientSearch(e.target.value);
@@ -1318,21 +1318,13 @@ export default function Home() {
                 })
               ) : (
                 <div style={{ padding: "10px 14px", color: "var(--muted)", fontSize: "0.9rem" }}>
-                  No dealer or supplier found with this name
+                  No supplier found with this name
                 </div>
               )}
 
-              {/* Quick option to create brand new dealer or supplier directly from typing */}
+              {/* Quick option to create brand new supplier directly from typing */}
               {clientSearch.trim() && !clients.includes(clientSearch.trim()) && (
                 <div style={{ display: "flex", gap: 6, padding: "8px 10px", borderTop: "1px solid var(--border)", background: "var(--card-sub)", flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    style={{ flex: 1, fontSize: "0.82rem", padding: "7px 10px", borderColor: "var(--amber)", color: "var(--amber)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-                    onClick={() => handleAddNewClient(clientSearch.trim(), "dealer")}
-                  >
-                    <BuildingIcon size={14} /> Add as Dealer: &quot;<b>{clientSearch.trim()}</b>&quot;
-                  </button>
                   <button
                     type="button"
                     className="btn ghost"
@@ -1381,40 +1373,24 @@ export default function Home() {
         ) : null}
       </section>
 
-      {/* Modal for adding new dealer/supplier explicitly with type selector */}
+      {/* Modal for adding new supplier explicitly */}
       {showNewClientModal && (
         <div className="modal-overlay" onClick={() => setShowNewClientModal(false)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ display: "flex", alignItems: "center", gap: 7, fontSize: "1.1rem" }}>
-              <PlusIcon size={16} /> Add New {newClientType === "supplier" ? "Supplier" : "Dealer"}
+              <PlusIcon size={16} /> Add New Supplier
             </h3>
             <p style={{ color: "var(--muted)", fontSize: "0.8rem", marginBottom: 14 }}>
-              Select entity type and enter name.
+              Enter supplier name.
             </p>
 
-            {/* Entity Type Selection Toggle */}
-            <div className="entity-type-group">
-              <div
-                className={`entity-type-option ${newClientType === "dealer" ? "active-dealer" : ""}`}
-                onClick={() => setNewClientType("dealer")}
-              >
-                <BuildingIcon size={15} /> Dealer
-              </div>
-              <div
-                className={`entity-type-option ${newClientType === "supplier" ? "active-supplier" : ""}`}
-                onClick={() => setNewClientType("supplier")}
-              >
-                <UserIcon size={15} /> Supplier
-              </div>
-            </div>
-
             <label htmlFor="new-client-name" style={{ fontSize: "0.75rem" }}>
-              {newClientType === "supplier" ? "Supplier Name" : "Dealer Name"}
+              Supplier Name
             </label>
             <input
               id="new-client-name"
               type="text"
-              placeholder={newClientType === "supplier" ? "e.g. Alam Brothers / Steel Mills" : "e.g. Rahim Enterprise"}
+              placeholder="e.g. Alam Brothers / Steel Mills"
               value={newClientInput}
               onChange={(e) => setNewClientInput(e.target.value)}
               onKeyDown={(e) => {
@@ -2042,9 +2018,9 @@ export default function Home() {
           <div style={{ marginBottom: 12, color: "var(--accent)" }}>
             <UserIcon size={38} />
           </div>
-          <h3>Please Select a Dealer or Supplier Above</h3>
+          <h3>Please Select a Supplier Above</h3>
           <p style={{ marginBottom: 16 }}>
-            Select a dealer or supplier from the search box above to view details, add bills/payments, and see full transaction history, or click &quot;Add New Dealer / Supplier&quot;.
+            Select a supplier from the search box above to view details, add bills/payments, and see full transaction history, or click &quot;Add New Supplier&quot;.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
             <button
@@ -2052,17 +2028,17 @@ export default function Home() {
               className="btn"
               style={{ margin: 0, display: "inline-flex", alignItems: "center", gap: 6 }}
               onClick={() => {
-                setNewClientType("dealer");
+                setNewClientType("supplier");
                 setShowNewClientModal(true);
               }}
             >
-              <PlusIcon /> Add New Dealer / Supplier
+              <PlusIcon /> Add New Supplier
             </button>
             <button
               type="button"
               className="btn-download-all-excel"
               onClick={downloadAllDealersData}
-              title="Download full multi-sheet Excel file with all dealers and suppliers"
+              title="Download full multi-sheet Excel file with all suppliers"
             >
               <DownloadIcon size={15} /> Download All Excel
             </button>
