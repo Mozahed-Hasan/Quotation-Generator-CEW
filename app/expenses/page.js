@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import TopPageNav from "@/lib/TopPageNav";
 import * as XLSX from "xlsx-js-style";
 import {
   batchTranslateTable,
@@ -46,6 +47,38 @@ const CATEGORIES = [
   "Bazar",
   "Others",
 ];
+
+const CAT_COLORS = {
+  "Salary": "#8b5cf6",
+  "Overtime": "#a855f7",
+  "General": "#3b82f6",
+  "Supplier Payment (Raw Materials)": "#0284c7",
+  "Carrying Charge (In)": "#06b6d4",
+  "Carrying Charge (Out)": "#0d9488",
+  "Bank Deposit": "#10b981",
+  "Company Bank Deposit": "#059669",
+  "Company Own Withdrawal": "#f59e0b",
+  "Debt Payment": "#d97706",
+  "Farm": "#84cc16",
+  "Fuel": "#f97316",
+  "Hardware": "#ef4444",
+  "Repairing Materials": "#ec4899",
+  "Mechanic Fee": "#f43f5e",
+  "Bazar": "#14b8a6",
+  "Others": "#64748b",
+  "Other": "#64748b",
+};
+
+const FALLBACK_PALETTE = [
+  "#8b5cf6", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b",
+  "#f97316", "#ef4444", "#ec4899", "#14b8a6", "#6366f1",
+  "#84cc16", "#0284c7", "#d97706", "#64748b"
+];
+
+function getCatColor(cat, idx = 0) {
+  return CAT_COLORS[cat] || FALLBACK_PALETTE[idx % FALLBACK_PALETTE.length];
+}
+
 const DEFAULT_STAFF = [
   "Ikram",
   "Jony",
@@ -290,6 +323,8 @@ export default function ExpensesPage() {
   const range = useMemo(() => getRange(mode, ref), [mode, ref]);
   const [catFilter, setCatFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [analysisTab, setAnalysisTab] = useState("pie"); // 'pie' | 'compare'
+  const [hoveredCat, setHoveredCat] = useState(null);
 
   const kpiMode = mode;
   const kpiRef = ref;
@@ -897,6 +932,104 @@ export default function ExpensesPage() {
   // Primary Total Expense reflects ONLY actual expenses (Eliminating double counting!)
   const total = totalActualExpense;
 
+  // Previous Period Data & Comparison Calculations
+  const prevPeriodData = useMemo(() => {
+    if (mode === "all") return null;
+    const prevRefDate = shiftRef(mode, ref, -1);
+    const pRange = getRange(mode, prevRefDate);
+
+    const prevActual = expenses.filter(
+      (x) =>
+        x.expense_date >= pRange.from &&
+        x.expense_date <= pRange.to &&
+        !isDepositCategory(x.category)
+    );
+    const prevTotal = prevActual.reduce((s, x) => s + Number(x.amount || 0), 0);
+
+    const catMap = new Map();
+    prevActual.forEach((x) => {
+      catMap.set(x.category, (catMap.get(x.category) || 0) + Number(x.amount || 0));
+    });
+
+    return {
+      ref: prevRefDate,
+      range: pRange,
+      total: prevTotal,
+      catMap,
+      count: prevActual.length,
+    };
+  }, [expenses, mode, ref]);
+
+  // Current Period Analysis Breakdown for Pie Chart
+  const analysisBreakdown = useMemo(() => {
+    const map = new Map();
+    actualExpenses.forEach((x) => {
+      map.set(x.category, (map.get(x.category) || 0) + Number(x.amount || 0));
+    });
+
+    const items = Array.from(map.entries())
+      .map(([category, amount], idx) => ({
+        category,
+        amount,
+        color: getCatColor(category, idx),
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    const periodTotal = items.reduce((s, x) => s + x.amount, 0);
+
+    return {
+      items: items.map((x) => ({
+        ...x,
+        percent: periodTotal > 0 ? (x.amount / periodTotal) * 100 : 0,
+      })),
+      total: periodTotal,
+    };
+  }, [actualExpenses]);
+
+  // Comprehensive Category Comparison Data (Current vs Previous)
+  const comparisonData = useMemo(() => {
+    if (!prevPeriodData) return [];
+    const allCategories = new Set([
+      ...analysisBreakdown.items.map((x) => x.category),
+      ...Array.from(prevPeriodData.catMap.keys()),
+    ]);
+
+    return Array.from(allCategories)
+      .map((cat, idx) => {
+        const curr = analysisBreakdown.items.find((x) => x.category === cat)?.amount || 0;
+        const prev = prevPeriodData.catMap.get(cat) || 0;
+        const diff = curr - prev;
+        const pct = prev > 0 ? ((diff / prev) * 100) : (curr > 0 ? 100 : 0);
+        return {
+          category: cat,
+          color: getCatColor(cat, idx),
+          current: curr,
+          previous: prev,
+          diff,
+          pct,
+        };
+      })
+      .sort((a, b) => (b.current + b.previous) - (a.current + a.previous));
+  }, [analysisBreakdown, prevPeriodData]);
+
+  // Dynamic Category Sheet Tabs for quick filtering
+  const categorySheetList = useMemo(() => {
+    const map = new Map();
+    const inRange = expenses.filter(
+      (x) => x.expense_date >= range.from && x.expense_date <= range.to && !isDepositCategory(x.category)
+    );
+    inRange.forEach((x) => {
+      const c = x.category;
+      if (!map.has(c)) {
+        map.set(c, { name: c, count: 0, total: 0 });
+      }
+      const item = map.get(c);
+      item.count += 1;
+      item.total += Number(x.amount || 0);
+    });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [expenses, range]);
+
   // Dedicated calculations for Top KPI Cards (filtered strictly by kpiRange)
   const { kpiActualExpense, kpiDeposits, kpiBankExpense, kpiCashExpense } = useMemo(() => {
     let actualSum = 0;
@@ -1314,12 +1447,199 @@ export default function ExpensesPage() {
 
       applyExcelStyles(ws, isBn);
 
-      XLSX.utils.book_append_sheet(wb, ws, isBn ? "খরচের বিবরণ" : "Expenses");
+      XLSX.utils.book_append_sheet(wb, ws, isBn ? "সারসংক্ষেপ ও সব খরচ" : "Summary & All");
+
+      // Group by Category to generate separate sheets for each category
+      const categoryMap = new Map();
+      filtered.forEach((x) => {
+        if (!categoryMap.has(x.category)) {
+          categoryMap.set(x.category, []);
+        }
+        categoryMap.get(x.category).push(x);
+      });
+
+      // Sort categories with actual expenses first by highest amount
+      const sortedCats = Array.from(categoryMap.entries()).sort((a, b) => {
+        const sumA = a[1].reduce((s, x) => s + Number(x.amount || 0), 0);
+        const sumB = b[1].reduce((s, x) => s + Number(x.amount || 0), 0);
+        return sumB - sumA;
+      });
+
+      for (const [catName, catItems] of sortedCats) {
+        const sortedItems = [...catItems].sort((a, b) => a.expense_date.localeCompare(b.expense_date));
+        const catTotal = sortedItems.reduce((s, x) => s + Number(x.amount || 0), 0);
+        const catTitle = isBn ? (BN_TERMS[catName] || catName) : catName;
+
+        let catRows = [
+          [headerCompany],
+          [isBn ? `${catTitle} – খরচ বিবরণ (${periodLabel})` : `${catName.toUpperCase()} – EXPENSE LEDGER (${range.label})`],
+          [],
+          colHeaders,
+          ...sortedItems.map((x) => [
+            isBn ? toBengaliDigits(x.expense_date) : x.expense_date,
+            x.title,
+            isBn ? (BN_TERMS[x.category] || x.category) : x.category,
+            isBn ? (BN_TERMS[x.payment_method] || x.payment_method || "নগদ") : (x.payment_method || "Cash"),
+            x.paid_to || "-",
+            isBn ? toBengaliCurrency(x.amount) : Number(x.amount || 0),
+          ]),
+          [],
+          [isBn ? `মোট ${catTitle}` : `TOTAL ${catName.toUpperCase()}`, "", "", "", "", isBn ? toBengaliCurrency(catTotal) : catTotal],
+        ];
+
+        if (isBn) {
+          catRows = await batchTranslateTable(catRows, () => {});
+        }
+
+        const wsCat = XLSX.utils.aoa_to_sheet(catRows);
+        wsCat["!cols"] = [
+          { wch: 15 },
+          { wch: 32 },
+          { wch: 28 },
+          { wch: 16 },
+          { wch: 36 },
+          { wch: 20 },
+        ];
+        applyExcelStyles(wsCat, isBn);
+
+        let safeSheetName = (isBn ? (BN_TERMS[catName] || catName) : catName)
+          .replace(/[\\\/\?\*\[\]\:]/g, " ")
+          .trim()
+          .slice(0, 31);
+
+        let finalSheetName = safeSheetName;
+        let counter = 2;
+        while (wb.SheetNames.includes(finalSheetName)) {
+          finalSheetName = `${safeSheetName.slice(0, 26)} (${counter++})`;
+        }
+
+        XLSX.utils.book_append_sheet(wb, wsCat, finalSheetName);
+      }
+
       const langTag = isBn ? "_Bangla" : "";
       XLSX.writeFile(wb, `CEW_Expenses_${mode}_${range.label.replace(/[^a-zA-Z0-9]+/g, "_")}${langTag}.xlsx`);
     } catch (err) {
       console.error("Export expense Excel error:", err);
       alert("Failed to export Excel. Please try again.");
+    } finally {
+      setTranslatingExcel(false);
+      setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+    }
+  }
+
+  // Download Exact Period Comparison Table vs Previous Period as Excel (.xlsx)
+  async function executeExportComparisonExcel(lang = "en") {
+    if (!comparisonData || comparisonData.length === 0) {
+      alert("No comparison data available for this period to export.");
+      setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+      return;
+    }
+
+    const isBn = lang === "bn";
+    if (isBn) {
+      setTranslatingExcel(true);
+      setTranslatingProgress(20);
+    }
+
+    try {
+      const headerCompany = isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS";
+      const currLabel = isBn ? translatePeriodLabel(range.label) : range.label;
+      const prevLabel = isBn
+        ? translatePeriodLabel(prevPeriodData?.range?.label || "পূর্ববর্তী সময়কাল")
+        : (prevPeriodData?.range?.label || "Previous Period");
+
+      const reportTitle = isBn
+        ? `খরচ তুলনা রিপোর্ট – ${currLabel} বনাম ${prevLabel}`
+        : `EXPENSE PERIOD COMPARISON REPORT – ${range.label} vs ${prevPeriodData?.range?.label || "Previous"}`;
+
+      const subtitle = isBn
+        ? `বর্তমান সময়কাল: ${currLabel} | পূর্ববর্তী সময়কাল: ${prevLabel} | মোট ক্যাটাগরি: ${toBengaliDigits(comparisonData.length)}`
+        : `Current Period: ${range.label} | Previous Period: ${prevPeriodData?.range?.label || "Previous"} | Total Categories: ${comparisonData.length}`;
+
+      const colHeaders = isBn
+        ? [
+            "খরচের ক্যাটাগরি",
+            `পূর্ববর্তী সময়কাল (${prevLabel})`,
+            `বর্তমান সময়কাল (${currLabel})`,
+            "পার্থক্য (টাকা)",
+            "পরিবর্তন (%)",
+            "ট্রেন্ড / অবস্থা",
+          ]
+        : [
+            "Expense Category",
+            `Previous (${prevPeriodData?.range?.label || "Prev"})`,
+            `Current (${range.label})`,
+            "Difference (BDT)",
+            "Change (%)",
+            "Trend / Status",
+          ];
+
+      const pTotal = prevPeriodData?.total || 0;
+      const cTotal = total;
+      const netDiff = cTotal - pTotal;
+      const overallPct = pTotal > 0 ? ((netDiff / pTotal) * 100) : (cTotal > 0 ? 100 : 0);
+
+      const rows = [
+        [headerCompany],
+        [reportTitle],
+        [subtitle],
+        [],
+        colHeaders,
+        ...comparisonData.map((row) => {
+          const catName = isBn ? (BN_TERMS[row.category] || row.category) : row.category;
+          const prevVal = isBn ? toBengaliCurrency(row.previous) : Number(row.previous || 0);
+          const currVal = isBn ? toBengaliCurrency(row.current) : Number(row.current || 0);
+          const diffVal = isBn ? toBengaliCurrency(row.diff) : Number(row.diff || 0);
+          const pctVal = isBn
+            ? `${row.diff > 0 ? "+" : ""}${toBengaliDigits(row.pct.toFixed(1))}%`
+            : `${row.diff > 0 ? "+" : ""}${row.pct.toFixed(1)}%`;
+          const trendVal = isBn
+            ? (row.diff > 0 ? "বৃদ্ধি (▲)" : row.diff < 0 ? "হ্রাস (▼)" : "অপরিবর্তিত")
+            : (row.diff > 0 ? "Increase (▲)" : row.diff < 0 ? "Decrease (▼)" : "No Change");
+
+          return [catName, prevVal, currVal, diffVal, pctVal, trendVal];
+        }),
+        [],
+        [
+          isBn ? "সর্বমোট (TOTAL)" : "TOTAL",
+          isBn ? toBengaliCurrency(pTotal) : Number(pTotal || 0),
+          isBn ? toBengaliCurrency(cTotal) : Number(cTotal || 0),
+          isBn ? toBengaliCurrency(netDiff) : Number(netDiff || 0),
+          isBn
+            ? `${netDiff > 0 ? "+" : ""}${toBengaliDigits(overallPct.toFixed(1))}%`
+            : `${netDiff > 0 ? "+" : ""}${overallPct.toFixed(1)}%`,
+          isBn
+            ? (netDiff > 0 ? "বৃদ্ধি (▲)" : netDiff < 0 ? "হ্রাস (▼)" : "অপরিবর্তিত")
+            : (netDiff > 0 ? "Increase (▲)" : netDiff < 0 ? "Decrease (▼)" : "No Change"),
+        ],
+      ];
+
+      if (isBn) {
+        setTranslatingProgress(65);
+      }
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"] = [
+        { wch: 32 },
+        { wch: 24 },
+        { wch: 24 },
+        { wch: 22 },
+        { wch: 18 },
+        { wch: 18 },
+      ];
+
+      applyExcelStyles(ws, isBn);
+
+      const sheetName = isBn ? "পিরিয়ড তুলনা রিপোর্ট" : "Period Comparison";
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+      const langTag = isBn ? "_Bangla" : "";
+      const safeLabel = range.label.replace(/[^a-zA-Z0-9]+/g, "_");
+      XLSX.writeFile(wb, `CEW_Expense_Comparison_${mode}_${safeLabel}${langTag}.xlsx`);
+    } catch (err) {
+      console.error("Export comparison Excel error:", err);
+      alert("Failed to export comparison table. Please try again.");
     } finally {
       setTranslatingExcel(false);
       setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
@@ -1843,6 +2163,7 @@ export default function ExpensesPage() {
           </div>
         </div>
         <nav className="be-nav-actions">
+          <TopPageNav active="expense" />
           <Link href="/" className="be-nav-btn" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <HomeIcon size={14} /> Home
           </Link>
@@ -2621,22 +2942,352 @@ export default function ExpensesPage() {
           </div>
         )}
 
-        {byCategory.length > 0 && (
-          <div className="be-form-section">
-            <div className="be-section-heading"><span>Category Breakdown</span></div>
-            <div className="ex-breakdown">
-              {byCategory.map(([c, v]) => (
-                <div className="ex-bar-row" key={c}>
-                  <strong>{c}</strong>
-                  <div className="ex-bar-track">
-                    <div className="ex-bar-fill" style={{ width: `${total ? (v / total) * 100 : 0}%` }} />
-                  </div>
-                  <span style={{ textAlign: "right" }}>
-                    ৳ {fmt(v)} <span style={{ color: "var(--be-text-muted)" }}>({total ? ((v / total) * 100).toFixed(1) : 0}%)</span>
+        {/* Interactive Pie Chart & Previous Period Comparison */}
+        {analysisBreakdown.items.length > 0 && (
+          <div className="ex-analysis-card">
+            <div className="ex-analysis-header">
+              <div className="ex-analysis-title-group">
+                <span className="ex-analysis-title">
+                  <BarChartIcon size={18} style={{ color: "#2563eb" }} />
+                  Expense Distribution &amp; Period Comparison
+                </span>
+                <span className="ex-analysis-subtitle">
+                  Visual breakdown of {range.label}
+                  {prevPeriodData ? ` compared to ${prevPeriodData.range.label}` : ""}
+                </span>
+              </div>
+              <div className="ex-analysis-view-toggle">
+                <button
+                  type="button"
+                  className={`ex-analysis-toggle-btn ${analysisTab === "pie" ? "active" : ""}`}
+                  onClick={() => setAnalysisTab("pie")}
+                >
+                  Pie / Donut Chart
+                </button>
+                <button
+                  type="button"
+                  className={`ex-analysis-toggle-btn ${analysisTab === "compare" ? "active" : ""}`}
+                  onClick={() => setAnalysisTab("compare")}
+                >
+                  Period Comparison ({mode === "week" ? "vs Prev Week" : mode === "month" ? "vs Prev Month" : mode === "year" ? "vs Prev Year" : "vs Prev"})
+                </button>
+              </div>
+            </div>
+
+            {/* Comparison Metric Highlights */}
+            {prevPeriodData && (
+              <div className="ex-comp-metrics-row">
+                <div className="ex-comp-metric-box">
+                  <span className="ex-comp-metric-label">Current: {range.label}</span>
+                  <span className="ex-comp-metric-val">৳ {fmt(total)}</span>
+                  <span className="ex-comp-metric-sub neutral">
+                    {analysisBreakdown.items.length} Active Categories
                   </span>
                 </div>
-              ))}
-            </div>
+                <div className="ex-comp-metric-box">
+                  <span className="ex-comp-metric-label">Previous: {prevPeriodData.range.label}</span>
+                  <span className="ex-comp-metric-val">৳ {fmt(prevPeriodData.total)}</span>
+                  <span className="ex-comp-metric-sub neutral">
+                    {prevPeriodData.count} Recorded Entries
+                  </span>
+                </div>
+                <div className="ex-comp-metric-box">
+                  <span className="ex-comp-metric-label">Expense Difference</span>
+                  <span
+                    className="ex-comp-metric-val"
+                    style={{
+                      color: total > prevPeriodData.total ? "#dc2626" : total < prevPeriodData.total ? "#16a34a" : "#0f172a",
+                    }}
+                  >
+                    {total >= prevPeriodData.total ? "+" : "-"}৳ {fmt(Math.abs(total - prevPeriodData.total))}
+                  </span>
+                  <span
+                    className={`ex-comp-metric-sub ${
+                      total > prevPeriodData.total ? "increase" : total < prevPeriodData.total ? "decrease" : "neutral"
+                    }`}
+                  >
+                    {total > prevPeriodData.total ? (
+                      <>▲ Increased by {prevPeriodData.total > 0 ? Math.abs(((total - prevPeriodData.total) / prevPeriodData.total) * 100).toFixed(1) : "100"}% vs previous {mode}</>
+                    ) : total < prevPeriodData.total ? (
+                      <>▼ Reduced by {prevPeriodData.total > 0 ? Math.abs(((total - prevPeriodData.total) / prevPeriodData.total) * 100).toFixed(1) : "100"}% (Savings!)</>
+                    ) : (
+                      <>Equal to previous {mode}</>
+                    )}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* View 1: Interactive Pie / Donut Chart */}
+            {analysisTab === "pie" && (
+              <div className="ex-donut-grid">
+                <div className="ex-donut-wrap">
+                  <svg className="ex-donut-svg" viewBox="0 0 210 210">
+                    {(() => {
+                      const items = analysisBreakdown.items;
+                      const tot = analysisBreakdown.total;
+                      if (!items.length || tot <= 0) return null;
+                      if (items.length === 1 || items[0].amount >= tot - 0.01) {
+                        return (
+                          <circle
+                            cx={105}
+                            cy={105}
+                            r={73}
+                            fill="none"
+                            stroke={items[0].color}
+                            strokeWidth={34}
+                            className="ex-donut-slice"
+                            onMouseEnter={() => setHoveredCat(items[0].category)}
+                            onMouseLeave={() => setHoveredCat(null)}
+                          />
+                        );
+                      }
+
+                      let cumAngle = 0;
+                      return items.map((item, idx) => {
+                        const sliceAngle = (item.amount / tot) * 360;
+                        const startAngle = cumAngle;
+                        const endAngle = cumAngle + sliceAngle;
+                        cumAngle += sliceAngle;
+
+                        const r = 90;
+                        const ir = 56;
+                        const cx = 105;
+                        const cy = 105;
+
+                        const sRad = (startAngle - 90) * (Math.PI / 180);
+                        const eRad = (endAngle - 90) * (Math.PI / 180);
+
+                        const x1 = cx + r * Math.cos(sRad);
+                        const y1 = cy + r * Math.sin(sRad);
+                        const x2 = cx + r * Math.cos(eRad);
+                        const y2 = cy + r * Math.sin(eRad);
+                        const x3 = cx + ir * Math.cos(eRad);
+                        const y3 = cy + ir * Math.sin(eRad);
+                        const x4 = cx + ir * Math.cos(sRad);
+                        const y4 = cy + ir * Math.sin(sRad);
+
+                        const largeArc = sliceAngle > 180 ? 1 : 0;
+                        const d = `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${ir} ${ir} 0 ${largeArc} 0 ${x4} ${y4} Z`;
+                        const isHovered = hoveredCat === item.category;
+
+                        return (
+                          <path
+                            key={item.category || idx}
+                            d={d}
+                            fill={item.color}
+                            stroke="#ffffff"
+                            strokeWidth={isHovered ? 2.5 : 1.5}
+                            className="ex-donut-slice"
+                            style={{
+                              transform: isHovered ? "scale(1.03)" : "scale(1)",
+                              transformOrigin: "105px 105px",
+                            }}
+                            onMouseEnter={() => setHoveredCat(item.category)}
+                            onMouseLeave={() => setHoveredCat(null)}
+                            onClick={() => setCatFilter(catFilter === item.category ? "all" : item.category)}
+                          />
+                        );
+                      });
+                    })()}
+                  </svg>
+
+                  <div className="ex-donut-center-info">
+                    {hoveredCat ? (
+                      (() => {
+                        const item = analysisBreakdown.items.find((x) => x.category === hoveredCat);
+                        if (!item) return null;
+                        return (
+                          <>
+                            <div className="ex-donut-center-val" style={{ color: item.color }}>
+                              ৳ {fmt(item.amount)}
+                            </div>
+                            <div className="ex-donut-center-label" style={{ color: "#0f172a" }}>
+                              {item.category}
+                            </div>
+                            <div style={{ fontSize: "0.68rem", color: "#64748b", fontWeight: 700, marginTop: 2 }}>
+                              {item.percent.toFixed(1)}% of total
+                            </div>
+                          </>
+                        );
+                      })()
+                    ) : (
+                      <>
+                        <div className="ex-donut-center-val">
+                          ৳ {fmt(total)}
+                        </div>
+                        <div className="ex-donut-center-label">
+                          Total Expense
+                        </div>
+                        {prevPeriodData && (
+                          <div
+                            style={{
+                              fontSize: "0.66rem",
+                              fontWeight: 800,
+                              marginTop: 2,
+                              color: total > prevPeriodData.total ? "#dc2626" : total < prevPeriodData.total ? "#16a34a" : "#64748b",
+                            }}
+                          >
+                            {total > prevPeriodData.total ? "▲ +" : total < prevPeriodData.total ? "▼ -" : ""}
+                            {prevPeriodData.total > 0
+                              ? Math.abs(((total - prevPeriodData.total) / prevPeriodData.total) * 100).toFixed(1)
+                              : "0"}%
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="ex-legend-list">
+                  {analysisBreakdown.items.map((item) => (
+                    <div
+                      key={item.category}
+                      className={`ex-legend-item ${hoveredCat === item.category ? "highlighted" : ""} ${catFilter === item.category ? "highlighted" : ""}`}
+                      onMouseEnter={() => setHoveredCat(item.category)}
+                      onMouseLeave={() => setHoveredCat(null)}
+                      onClick={() => setCatFilter(catFilter === item.category ? "all" : item.category)}
+                      title={`Filter table by ${item.category}`}
+                    >
+                      <div className="ex-legend-left">
+                        <span className="ex-legend-dot" style={{ background: item.color }} />
+                        <span className="ex-legend-name">{item.category}</span>
+                      </div>
+                      <div className="ex-legend-right">
+                        <span className="ex-legend-amt">৳ {fmt(item.amount)}</span>
+                        <span className="ex-legend-pct">{item.percent.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* View 2: Detailed Category Comparison Table vs Previous Period */}
+            {analysisTab === "compare" && (
+              <div className="ex-comp-table-wrap">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+                  <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "#1e3a8a" }}>
+                    📊 Detailed Category Comparison ({range.label} vs {prevPeriodData?.range?.label || "Previous Period"})
+                  </div>
+                  <button
+                    type="button"
+                    className="be-nav-btn"
+                    onClick={() => openExcelLanguageModal("comparison", "Expense Period Comparison Report")}
+                    disabled={comparisonData.length === 0}
+                    style={{
+                      fontSize: "0.78rem",
+                      padding: "5px 12px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "#2563eb",
+                      color: "#ffffff",
+                      borderColor: "#2563eb",
+                      fontWeight: 600,
+                      borderRadius: 6,
+                      boxShadow: "0 1px 2px rgba(37,99,235,0.2)",
+                    }}
+                    title="Download exact Period Comparison table as Excel (.xlsx)"
+                  >
+                    <FileTextIcon size={14} /> Download Comparison Table (.xlsx)
+                  </button>
+                </div>
+
+                <table className="ex-comp-table">
+                  <thead>
+                    <tr>
+                      <th>Expense Category</th>
+                      <th style={{ textAlign: "right" }}>Previous ({prevPeriodData?.range?.label || "Prev"})</th>
+                      <th style={{ textAlign: "right" }}>Current ({range.label})</th>
+                      <th style={{ textAlign: "right" }}>Difference (৳)</th>
+                      <th style={{ textAlign: "right" }}>Change (%)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comparisonData.length === 0 && (
+                      <tr>
+                        <td colSpan={5} style={{ textAlign: "center", padding: 18, color: "#64748b" }}>
+                          No comparative data available for this range.
+                        </td>
+                      </tr>
+                    )}
+                    {comparisonData.map((row) => (
+                      <tr key={row.category}>
+                        <td style={{ fontWeight: 700 }}>
+                          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: row.color, marginRight: 8 }} />
+                          {row.category}
+                        </td>
+                        <td style={{ textAlign: "right", color: "#64748b" }}>
+                          ৳ {fmt(row.previous)}
+                        </td>
+                        <td style={{ textAlign: "right", fontWeight: 700 }}>
+                          ৳ {fmt(row.current)}
+                        </td>
+                        <td
+                          style={{
+                            textAlign: "right",
+                            fontWeight: 700,
+                            color: row.diff > 0 ? "#dc2626" : row.diff < 0 ? "#16a34a" : "#64748b",
+                          }}
+                        >
+                          {row.diff > 0 ? `+৳ ${fmt(row.diff)}` : row.diff < 0 ? `-৳ ${fmt(Math.abs(row.diff))}` : "৳ 0"}
+                        </td>
+                        <td
+                          style={{
+                            textAlign: "right",
+                            fontWeight: 800,
+                            color: row.diff > 0 ? "#dc2626" : row.diff < 0 ? "#16a34a" : "#64748b",
+                          }}
+                        >
+                          {row.diff > 0 ? `▲ +${row.pct.toFixed(1)}%` : row.diff < 0 ? `▼ ${row.pct.toFixed(1)}%` : "0.0%"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {comparisonData.length > 0 && (
+                    <tfoot style={{ background: "#f8fafc", borderTop: "2px solid #cbd5e1" }}>
+                      <tr>
+                        <td style={{ fontWeight: 800, color: "#0f172a" }}>TOTAL / সর্বমোট</td>
+                        <td style={{ textAlign: "right", fontWeight: 800, color: "#475569" }}>
+                          ৳ {fmt(prevPeriodData?.total || 0)}
+                        </td>
+                        <td style={{ textAlign: "right", fontWeight: 800, color: "#0f172a" }}>
+                          ৳ {fmt(total)}
+                        </td>
+                        <td
+                          style={{
+                            textAlign: "right",
+                            fontWeight: 800,
+                            color: total > (prevPeriodData?.total || 0) ? "#dc2626" : total < (prevPeriodData?.total || 0) ? "#16a34a" : "#64748b",
+                          }}
+                        >
+                          {total > (prevPeriodData?.total || 0)
+                            ? `+৳ ${fmt(total - (prevPeriodData?.total || 0))}`
+                            : total < (prevPeriodData?.total || 0)
+                            ? `-৳ ${fmt((prevPeriodData?.total || 0) - total)}`
+                            : "৳ 0"}
+                        </td>
+                        <td
+                          style={{
+                            textAlign: "right",
+                            fontWeight: 900,
+                            color: total > (prevPeriodData?.total || 0) ? "#dc2626" : total < (prevPeriodData?.total || 0) ? "#16a34a" : "#64748b",
+                          }}
+                        >
+                          {(() => {
+                            const pTotal = prevPeriodData?.total || 0;
+                            const diff = total - pTotal;
+                            const pct = pTotal > 0 ? ((diff / pTotal) * 100) : (total > 0 ? 100 : 0);
+                            return diff > 0 ? `▲ +${pct.toFixed(1)}%` : diff < 0 ? `▼ ${pct.toFixed(1)}%` : "0.0%";
+                          })()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
           </div>
         )}
 
@@ -3531,6 +4182,8 @@ export default function ExpensesPage() {
                     onClick={() => {
                       if (excelLangModal.type === "salary") {
                         executeExportSalaryExcel("bn");
+                      } else if (excelLangModal.type === "comparison") {
+                        executeExportComparisonExcel("bn");
                       } else {
                         executeExportExcel("bn");
                       }
@@ -3549,6 +4202,8 @@ export default function ExpensesPage() {
                     onClick={() => {
                       if (excelLangModal.type === "salary") {
                         executeExportSalaryExcel("en");
+                      } else if (excelLangModal.type === "comparison") {
+                        executeExportComparisonExcel("en");
                       } else {
                         executeExportExcel("en");
                       }

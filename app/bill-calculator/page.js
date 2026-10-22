@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { generateBillPdf } from "@/lib/billPdf";
 import * as XLSX from "xlsx";
 import { HomeIcon } from "@/lib/icons";
+import TopPageNav from "@/lib/TopPageNav";
 
 // SVG Icons
 function UserIcon({ size = 18 }) {
@@ -1219,6 +1220,7 @@ export default function Home() {
           </div>
         </div>
         <div className="header-actions">
+          <TopPageNav active="purchase" />
           <a href="/" className="header-btn" title="Open Home Dashboard">
             <HomeIcon size={14} /> Home
           </a>

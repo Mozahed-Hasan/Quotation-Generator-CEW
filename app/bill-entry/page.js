@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import TopPageNav from "@/lib/TopPageNav";
 import { takaInWords } from "@/lib/words";
 import * as XLSX from "xlsx-js-style";
 import { XIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, BarChartIcon } from "@/lib/icons";
@@ -1789,14 +1790,26 @@ export default function BillEntryPage() {
         let tAdv = 0;
         let tDueRec = 0;
 
-        billList.forEach((b, i) => {
-          const runBal = b.runningBalance !== undefined ? Number(b.runningBalance) : Number(b.due_advance) || 0;
+        const balanceMap = new Map((billsWithBalance || []).map((b) => [b.id, b]));
+
+        billList.forEach((bRaw, i) => {
+          const b = balanceMap.get(bRaw.id) || bRaw;
           const totalBill = Number(b.total_bill || 0);
           const payment = Number(b.client_payment || 0);
-          const dueVal = Number(b.dueThisBill || 0);
-          const advVal = Number(b.advanceThisBill || 0);
-          const dueRecVal = Number(b.dueReceived || 0);
+
+          let dueVal = Number(b.dueThisBill || 0);
+          let advVal = Number(b.advanceThisBill || 0);
+          let dueRecVal = Number(b.dueReceived || 0);
+
+          // Fallback if not already populated on bill
+          if (b.dueThisBill === undefined && b.advanceThisBill === undefined) {
+            const diff = Math.round((totalBill - payment) * 100) / 100;
+            if (diff >= 0.005) dueVal = diff;
+            else if (diff <= -0.005) advVal = Math.abs(diff);
+          }
+
           const invoicePayment = Math.max(0, payment - dueRecVal - advVal);
+          const runBal = b.runningBalance !== undefined ? Number(b.runningBalance) : Number(b.due_advance) || 0;
           const itCount = Array.isArray(b.items) ? b.items.length : 0;
           const cidMobile = [
             b.customer_id,
@@ -1809,17 +1822,9 @@ export default function BillEntryPage() {
           tAdv += advVal;
           tDueRec += dueRecVal;
 
-          const remBalStr = isBn
-            ? runBal > 0
-              ? `বাকি: ${toBengaliCurrency(runBal)}`
-              : runBal < 0
-              ? `অগ্রিম: ${toBengaliCurrency(Math.abs(runBal))}`
-              : "০"
-            : runBal > 0
-            ? `Due: ${runBal.toFixed(2)}`
-            : runBal < 0
-            ? `Adv: ${Math.abs(runBal).toFixed(2)}`
-            : "0.00";
+          const remBalVal = isBn
+            ? toBengaliCurrency(runBal)
+            : Math.round(runBal * 100) / 100;
 
           rows.push([
             isBn ? toBengaliDigits(i + 1) : i + 1,
@@ -1833,7 +1838,7 @@ export default function BillEntryPage() {
             isBn ? toBengaliCurrency(dueVal) : dueVal,
             isBn ? toBengaliCurrency(advVal) : advVal,
             isBn ? toBengaliCurrency(dueRecVal) : dueRecVal,
-            remBalStr,
+            remBalVal,
             b.note || "",
           ]);
         });
@@ -2075,33 +2080,18 @@ export default function BillEntryPage() {
         const langTag = lang === "bn" ? "_Bangla" : "";
         XLSX.writeFile(wb, `CEW_Advance_Invoices_${ymd(today())}${langTag}.xlsx`);
       } else {
-        // Mode "all" (Master Report)
-        const dueBills = bills.filter((b) => (Number(b.due_advance) || 0) > 0);
-        const advBills = bills.filter((b) => (Number(b.due_advance) || 0) < 0);
-
+        // Mode "all" (Master Report) - 2 sheets: Customer Balances & All Invoices
         let sumRows = getCustomersSummarySheetRows(customerIdGroups, "ALL CUSTOMER BALANCES SUMMARY");
-        let dueRows = getInvoicesSheetRows(dueBills, "OUTSTANDING DUE INVOICES");
-        let advRows = getInvoicesSheetRows(advBills, "ADVANCE PAYMENT INVOICES");
-        let allRows = getInvoicesSheetRows(bills, "ALL RECORDED INVOICES");
+        let allRows = getInvoicesSheetRows(billsWithBalance, "ALL RECORDED INVOICES");
 
         if (lang === "bn") {
-          sumRows = await batchTranslateTable(sumRows, (p) => setTranslatingProgress(Math.round(p * 0.25)));
-          dueRows = await batchTranslateTable(dueRows, (p) => setTranslatingProgress(25 + Math.round(p * 0.25)));
-          advRows = await batchTranslateTable(advRows, (p) => setTranslatingProgress(50 + Math.round(p * 0.25)));
-          allRows = await batchTranslateTable(allRows, (p) => setTranslatingProgress(75 + Math.round(p * 0.23)));
+          sumRows = await batchTranslateTable(sumRows, (p) => setTranslatingProgress(Math.round(p * 0.45)));
+          allRows = await batchTranslateTable(allRows, (p) => setTranslatingProgress(45 + Math.round(p * 0.5)));
         }
 
         const wsSum = XLSX.utils.aoa_to_sheet(sumRows);
         setCols(wsSum, true);
         XLSX.utils.book_append_sheet(wb, wsSum, lang === "bn" ? "গ্রাহক ব্যালেন্স" : "Customer Balances");
-
-        const wsDue = XLSX.utils.aoa_to_sheet(dueRows);
-        setCols(wsDue, false);
-        XLSX.utils.book_append_sheet(wb, wsDue, lang === "bn" ? "বকেয়া চালান" : "Due Invoices");
-
-        const wsAdv = XLSX.utils.aoa_to_sheet(advRows);
-        setCols(wsAdv, false);
-        XLSX.utils.book_append_sheet(wb, wsAdv, lang === "bn" ? "অগ্রিম চালান" : "Advance Invoices");
 
         const wsAll = XLSX.utils.aoa_to_sheet(allRows);
         setCols(wsAll, false);
@@ -2551,6 +2541,8 @@ export default function BillEntryPage() {
         </div>
 
         <nav className="be-nav-actions">
+          <TopPageNav active="sales" />
+
           {/* Customers Directory Button */}
           <button
             type="button"
@@ -2947,11 +2939,13 @@ export default function BillEntryPage() {
                 </thead>
                 <tbody>
                   {form.items.map((item, idx) => (
-                    <tr key={idx}>
-                      <td style={{ textAlign: "center", color: "var(--be-text-muted)", fontWeight: 600 }}>
-                        {idx + 1}
+                    <tr key={idx} className="be-item-row">
+                      <td className="be-item-num-cell">
+                        <span className="be-mobile-item-title">Item #{idx + 1}</span>
+                        <span className="be-desktop-item-num">{idx + 1}</span>
                       </td>
-                      <td>
+                      <td className="be-item-desc-cell">
+                        <label className="be-item-field-label">Item Description <span className="req">*</span></label>
                         <input
                           type="text"
                           placeholder="Select or type item name..."
@@ -2960,7 +2954,8 @@ export default function BillEntryPage() {
                           onChange={(e) => handleItemFieldChange(idx, "name", e.target.value)}
                         />
                       </td>
-                      <td>
+                      <td className="be-item-note-cell">
+                        <label className="be-item-field-label">Item Note / Specs</label>
                         <input
                           type="text"
                           placeholder="Note / specs / remarks..."
@@ -2968,7 +2963,8 @@ export default function BillEntryPage() {
                           onChange={(e) => handleItemFieldChange(idx, "note", e.target.value)}
                         />
                       </td>
-                      <td>
+                      <td className="be-item-qty-cell">
+                        <label className="be-item-field-label">Quantity</label>
                         <input
                           type="number"
                           step="any"
@@ -2978,7 +2974,8 @@ export default function BillEntryPage() {
                           onChange={(e) => handleItemFieldChange(idx, "quantity", e.target.value)}
                         />
                       </td>
-                      <td>
+                      <td className="be-item-unit-cell">
+                        <label className="be-item-field-label">Unit</label>
                         <input
                           type="text"
                           placeholder="e.g. pcs"
@@ -2987,7 +2984,8 @@ export default function BillEntryPage() {
                           onChange={(e) => handleItemFieldChange(idx, "unit", e.target.value)}
                         />
                       </td>
-                      <td>
+                      <td className="be-item-rate-cell">
+                        <label className="be-item-field-label">Rate (৳)</label>
                         <input
                           type="number"
                           step="any"
@@ -2997,7 +2995,8 @@ export default function BillEntryPage() {
                           onChange={(e) => handleItemFieldChange(idx, "rate", e.target.value)}
                         />
                       </td>
-                      <td className="subtotal-cell">
+                      <td className="be-item-subtotal-cell subtotal-cell">
+                        <label className="be-item-field-label">Sub-Total (৳)</label>
                         <input
                           type="number"
                           step="any"
@@ -3008,7 +3007,7 @@ export default function BillEntryPage() {
                           onChange={(e) => handleItemFieldChange(idx, "subtotal", e.target.value)}
                         />
                       </td>
-                      <td style={{ textAlign: "center" }}>
+                      <td className="be-item-del-cell" style={{ textAlign: "center" }}>
                         {form.items.length > 1 && (
                           <button
                             type="button"
@@ -3020,6 +3019,7 @@ export default function BillEntryPage() {
                               <polyline points="3 6 5 6 21 6" />
                               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                             </svg>
+                            <span className="be-mobile-del-text">Delete</span>
                           </button>
                         )}
                       </td>

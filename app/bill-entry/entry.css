@@ -290,13 +290,15 @@
 .be-items-container {
   border: 1px solid var(--be-border);
   border-radius: 12px;
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   background: #ffffff;
   margin-bottom: 18px;
 }
 
 .be-items-table {
   width: 100%;
+  min-width: 780px;
   border-collapse: collapse;
   text-align: left;
   font-size: 0.88rem;
@@ -350,7 +352,7 @@
   border: none;
   color: #94a3b8;
   cursor: pointer;
-  padding: 4px;
+  padding: 5px;
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
@@ -361,6 +363,18 @@
 .be-del-row-btn:hover {
   color: #ef4444;
   background: #fee2e2;
+}
+
+.be-item-field-label,
+.be-mobile-item-title,
+.be-mobile-del-text {
+  display: none;
+}
+
+.be-desktop-item-num {
+  display: inline-block;
+  color: var(--be-text-muted);
+  font-weight: 600;
 }
 
 .be-add-item-bar {
@@ -375,7 +389,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 7px 14px;
   font-size: 0.82rem;
   font-weight: 600;
   border-radius: 6px;
@@ -390,6 +404,192 @@
   background: #f1f5f9;
   border-color: #94a3b8;
   color: #0f172a;
+}
+
+/* Mobile Responsive Item Breakdown (Phone Card View) */
+@media (max-width: 768px) {
+  .be-items-container {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+    margin-bottom: 14px;
+  }
+
+  .be-items-table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .be-items-table thead {
+    display: none;
+  }
+
+  .be-items-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .be-item-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .be-item-row:hover {
+    background: #ffffff;
+    border-color: #cbd5e1;
+  }
+
+  .be-items-table td {
+    padding: 0;
+    border: none;
+    vertical-align: top;
+  }
+
+  .be-desktop-item-num {
+    display: none;
+  }
+
+  .be-mobile-item-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: var(--be-primary, #991b1b);
+    background: #fef2f2;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid #fee2e2;
+  }
+
+  .be-item-num-cell {
+    grid-column: 1 / 2;
+    display: flex;
+    align-items: center;
+    padding-bottom: 2px;
+  }
+
+  .be-item-del-cell {
+    grid-column: 2 / 3;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding-bottom: 2px;
+  }
+
+  .be-del-row-btn {
+    padding: 4px 8px;
+    background: #fee2e2;
+    color: #dc2626;
+    border-radius: 6px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    gap: 4px;
+    border: 1px solid #fecaca;
+  }
+
+  .be-mobile-del-text {
+    display: inline;
+    font-size: 0.74rem;
+  }
+
+  .be-del-row-btn:hover {
+    background: #fca5a5;
+    color: #991b1b;
+  }
+
+  .be-item-desc-cell,
+  .be-item-note-cell {
+    grid-column: 1 / -1;
+  }
+
+  .be-item-qty-cell {
+    grid-column: 1 / 2;
+  }
+
+  .be-item-unit-cell {
+    grid-column: 2 / 3;
+  }
+
+  .be-item-rate-cell {
+    grid-column: 1 / 2;
+  }
+
+  .be-item-subtotal-cell {
+    grid-column: 2 / 3;
+  }
+
+  .be-item-field-label {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #475569;
+    margin-bottom: 4px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .be-items-table input {
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 0.92rem;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    box-sizing: border-box;
+    height: 40px;
+  }
+
+  .be-items-table input:focus {
+    border-color: var(--be-primary, #991b1b);
+    box-shadow: 0 0 0 3px rgba(153, 27, 27, 0.12);
+  }
+
+  .be-items-table .subtotal-cell {
+    padding-right: 0;
+  }
+
+  .be-items-table .subtotal-cell input {
+    background: #f8fafc;
+    color: #0f172a;
+    font-weight: 800;
+  }
+
+  .be-add-item-bar {
+    background: transparent;
+    border: none;
+    padding: 8px 0 0;
+  }
+
+  .be-btn-add {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 16px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 1.5px dashed #94a3b8;
+    color: #1e293b;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  }
+
+  .be-btn-add:hover {
+    background: #f8fafc;
+    border-color: #64748b;
+  }
 }
 
 /* Additional charges */

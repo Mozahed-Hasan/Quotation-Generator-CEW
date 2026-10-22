@@ -27,3 +27,78 @@ body {
     @apply bg-brand-50 text-brand-700 hover:bg-brand-100;
   }
 }
+
+/* Top Quick Page Navigation (Purchase, Sales, Expense Switcher) */
+.cew-top-page-nav {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  gap: 3px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.cew-top-nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #475569;
+  text-decoration: none;
+  border-radius: 7px;
+  transition: all 0.16s ease;
+  white-space: nowrap;
+  line-height: 1.2;
+  position: relative;
+}
+
+.cew-top-nav-item:hover {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.cew-top-nav-item.active {
+  background: #ffffff;
+  color: var(--nav-theme-color, #1e3a8a);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.cew-top-nav-icon {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.cew-top-nav-item:hover .cew-top-nav-icon {
+  transform: translateY(-0.5px);
+}
+
+.cew-top-nav-item.active .cew-top-nav-icon {
+  color: var(--nav-theme-color, #1e3a8a);
+}
+
+.cew-top-nav-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--nav-theme-color, #1e3a8a);
+  display: inline-block;
+  margin-left: 2px;
+}
+
+@media (max-width: 640px) {
+  .cew-top-page-nav {
+    width: 100%;
+    justify-content: stretch;
+  }
+  .cew-top-nav-item {
+    flex: 1;
+    justify-content: center;
+    padding: 6px 8px;
+    font-size: 0.78rem;
+  }
+}
