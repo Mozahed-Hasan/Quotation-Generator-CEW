@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Chowdhury Engineering Works | CEW Portal",
+  title: "Online Games | Portal",
   description: "Management Portal: Quotation Generator, Purchase, Sales, Expense and Admin Control Panel.",
 };
 
