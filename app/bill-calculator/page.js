@@ -2121,6 +2121,23 @@ export default function Home() {
                 <span style={{ fontSize: "0.85rem", opacity: 0.85 }}>
                   ({selectedEntryForModal.client_name})
                 </span>
+                {!isEditingModal && selectedEntryForModal.created_at && (
+                  <span
+                    style={{
+                      fontSize: "0.74rem",
+                      background: "rgba(255,255,255,0.18)",
+                      padding: "2px 8px",
+                      borderRadius: "6px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      fontWeight: 500,
+                    }}
+                    title="Exact Entry Creation Time"
+                  >
+                    🕒 Entry Time: {new Date(selectedEntryForModal.created_at).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}
+                  </span>
+                )}
               </div>
 
               <button
@@ -2190,6 +2207,14 @@ export default function Home() {
                         {selectedEntryForModal.type === "bill" ? "Purchase Bill" : "Payment"}
                       </div>
                     </div>
+                    {selectedEntryForModal.created_at && (
+                      <div>
+                        <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Entry Date & Time</div>
+                        <div style={{ fontWeight: 700, color: "#0f172a", marginTop: 2, fontSize: "0.84rem" }}>
+                          🕒 {new Date(selectedEntryForModal.created_at).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* BILL DETAILS */}

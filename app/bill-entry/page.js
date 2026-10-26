@@ -4336,9 +4336,26 @@ export default function BillEntryPage() {
                     >
                       {isEditingModal ? "✏️ Edit Mode" : "Invoice Voucher"}
                     </span>
-                    <span style={{ fontSize: "0.82rem", opacity: 0.8 }}>
+                    <span style={{ fontSize: "0.82rem", opacity: 0.85 }}>
                       {isEditingModal ? "Auto-Calculating Changes" : `Date: ${b.bill_date || "—"}`}
                     </span>
+                    {!isEditingModal && b.created_at && (
+                      <span
+                        style={{
+                          fontSize: "0.74rem",
+                          background: "rgba(255,255,255,0.18)",
+                          padding: "2px 8px",
+                          borderRadius: "6px",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          fontWeight: 500,
+                        }}
+                        title="Exact Entry Creation Time"
+                      >
+                        🕒 Entry Time: {new Date(b.created_at).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}
+                      </span>
+                    )}
                   </div>
 
                   {isEditingModal ? (
@@ -4601,6 +4618,17 @@ export default function BillEntryPage() {
                         {b.customer_address || "—"}
                       </div>
                     </div>
+
+                    {b.created_at && (
+                      <div>
+                        <div style={{ fontSize: "0.72rem", color: "#64748b", textTransform: "uppercase", fontWeight: 700, marginBottom: "3px" }}>
+                          Entry Date & Time
+                        </div>
+                        <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "#0f172a" }}>
+                          🕒 {new Date(b.created_at).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
