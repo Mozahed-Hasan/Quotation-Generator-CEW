@@ -556,7 +556,11 @@ export default function AdminPanelPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              setEditTarget({ ...u, permissions: u.permissions || {} });
+                              let perms = u.permissions || {};
+                              if (typeof perms === "string") {
+                                try { perms = JSON.parse(perms); } catch (e) { perms = {}; }
+                              }
+                              setEditTarget({ ...u, permissions: perms });
                               setShowEditModal(true);
                             }}
                             className="be-nav-btn"
