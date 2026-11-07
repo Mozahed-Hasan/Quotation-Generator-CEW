@@ -126,6 +126,7 @@ const ITEM_PRESETS = [
   "C-Purlin",
   "Decking Sheet",
   "Transportation",
+  "Scale",
 ];
 
 const ITEM_SUGGESTED_UNIT = {
@@ -169,6 +170,7 @@ const ITEM_SUGGESTED_UNIT = {
   "c-purlin": "kg",
   "decking sheet": "kg",
   "transportation": "trip",
+  "scale": "pcs",
 };
 
 const getSuggestedUnit = (name) => {
@@ -2532,11 +2534,9 @@ export default function BillEntryPage() {
       {/* Top Navbar Header */}
       <header className="be-header">
         <div className="be-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/cew-icon.png" alt="CEW" className="be-logo" />
           <div className="be-title-box">
             <h1>Sales</h1>
-            <p>Chowdhury Engineering Works • Customer Invoicing &amp; Ledger</p>
+            <p>Customer Invoicing &amp; Ledger</p>
           </div>
         </div>
 

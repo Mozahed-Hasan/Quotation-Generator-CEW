@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Quotation Generator | CEW",
+  title: "Quotation Generator | Management Portal",
   description: "Create and download professional PDF quotations with custom columns and rows.",
 };
 

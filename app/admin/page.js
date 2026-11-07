@@ -294,11 +294,9 @@ export default function AdminPanelPage() {
       {/* Top Header Navbar */}
       <header className="be-header">
         <div className="be-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/cew-icon.png" alt="CEW" className="be-logo" />
           <div className="be-title-box">
             <h1>Admin Control Panel</h1>
-            <p>Chowdhury Engineering Works • User Access &amp; Permissions Manager</p>
+            <p>User Access &amp; Permissions Manager</p>
           </div>
         </div>
 

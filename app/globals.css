@@ -90,6 +90,116 @@ body {
   margin-left: 2px;
 }
 
+/* Disable mouse wheel accidental value changes on all number inputs */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Global Page Transition & Loading Overlay */
+.global-top-progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #2563eb, #38bdf8, #60a5fa, #2563eb);
+  background-size: 200% 100%;
+  animation: globalBarSlide 1.2s infinite linear;
+  z-index: 99999;
+}
+
+@keyframes globalBarSlide {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.global-page-loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99998;
+  animation: globalOverlayFadeIn 0.15s ease-out;
+}
+
+@keyframes globalOverlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.global-page-loading-card {
+  background: #ffffff;
+  padding: 24px 32px;
+  border-radius: 16px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  min-width: 200px;
+  animation: globalCardPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes globalCardPop {
+  from {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.global-page-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3.5px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-right-color: #38bdf8;
+  border-radius: 50%;
+  animation: globalSpin 0.75s infinite linear;
+}
+
+@keyframes globalSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.global-page-loading-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+.global-page-loading-sub {
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
 @media (max-width: 640px) {
   .cew-top-page-nav {
     width: 100%;

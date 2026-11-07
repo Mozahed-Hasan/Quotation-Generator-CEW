@@ -1178,14 +1178,11 @@ export default function Home() {
       {/* Printable CEW Header Pad (Displays ONLY during browser printing) */}
       <div className="print-letterhead-header">
         <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/cew-icon.png" alt="CEW" style={{ width: "65px", height: "65px", objectFit: "contain" }} />
           <div>
-            <h2 style={{ fontSize: "17pt", fontWeight: "bold", margin: 0, color: "#991b1b" }}>Chowdhury Engineering Works</h2>
-            <p style={{ fontSize: "9pt", margin: "2px 0", color: "#334155" }}>39 No Ward, Haidarabad, Tongi, Gazipur. | Contact: 01959404040, 01932-505050</p>
+            <h2 style={{ fontSize: "17pt", fontWeight: "bold", margin: 0, color: "#1e293b" }}>Account Statement</h2>
           </div>
         </div>
-        <hr style={{ margin: "10px 0 14px 0", borderTop: "2px solid #b91c1c", borderBottom: "none" }} />
+        <hr style={{ margin: "10px 0 14px 0", borderTop: "2px solid #475569", borderBottom: "none" }} />
         {selectedClient && (
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "10pt" }}>
             <div>
@@ -1195,7 +1192,7 @@ export default function Home() {
             <div style={{ textAlign: "right" }}>
               <p style={{ margin: "2px 0" }}><strong>Date:</strong> {today()}</p>
               <p style={{ margin: "2px 0", color: "#475569" }}>
-                <strong>Ref:</strong> CEW-{(selectedClient || "NAME").toUpperCase().replace(/[^A-Z0-9]/g, "-").replace(/-+/g, "-")}-{today()}
+                <strong>Ref:</strong> REF-{(selectedClient || "NAME").toUpperCase().replace(/[^A-Z0-9]/g, "-").replace(/-+/g, "-")}-{today()}
               </p>
             </div>
           </div>
@@ -1210,13 +1207,9 @@ export default function Home() {
       {/* Header */}
       <header className="top">
         <div className="header-brand">
-          <div className="header-logo-box">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/cew-icon.png" alt="CEW Logo" />
-          </div>
           <div>
             <h1 className="header-title">Purchase</h1>
-            <p className="sub">Chowdhury Engineering Works • Supplier Ledger</p>
+            <p className="sub">Supplier &amp; Dealer Ledger</p>
           </div>
         </div>
         <div className="header-actions">

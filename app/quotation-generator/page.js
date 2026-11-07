@@ -292,16 +292,12 @@ export default function Home() {
     >
       <header className="mb-5 sm:mb-8 flex flex-wrap items-center justify-between gap-3 rounded-xl sm:rounded-2xl bg-white p-3.5 sm:p-5 shadow-sm ring-1 ring-slate-200">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 sm:h-16 sm:w-16 shrink-0 items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-br from-red-50 to-rose-100 p-1.5 sm:p-2 shadow-sm ring-1 ring-red-200">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/cew-icon.png" alt="CEW Logo" className="h-full w-auto object-contain" />
-          </div>
           <div>
             <h1 className="text-xl font-extrabold tracking-tight text-brand-600 sm:text-3xl">
               Quotation Generator
             </h1>
             <p className="mt-0.5 text-[11px] text-slate-500 sm:text-sm">
-              Chowdhury Engineering Works • {COMPANY.address}
+              Professional Quotation &amp; Estimate Creator
             </p>
           </div>
         </div>

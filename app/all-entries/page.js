@@ -1457,6 +1457,35 @@ export default function AllEntriesAuditPage() {
     }
   }
 
+  // Bulk Delete
+  async function handleBulkDelete() {
+    if (selectedUids.size === 0) return;
+    if (!confirm(`Move ${selectedUids.size} selected entries to Recycle Bin?`)) {
+      return;
+    }
+    setBusy(true);
+    setErrMsg("");
+    setOkMsg("");
+
+    const targetItems = entries.filter((e) => selectedUids.has(e.uid));
+    try {
+      let count = 0;
+      for (const item of targetItems) {
+        const res = await fetch(`/api/all-entries?source=${item.source}&id=${item.id}`, {
+          method: "DELETE",
+        });
+        if (res.ok) count++;
+      }
+      setSelectedUids(new Set());
+      setOkMsg(`Successfully moved ${count} entries to Recycle Bin.`);
+      await loadData();
+    } catch (e) {
+      setErrMsg(e.message || "Failed during bulk deletion");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Edit Modal trigger
   function handleOpenEdit(item) {
     setEditingEntry(item);
@@ -1739,8 +1768,6 @@ export default function AllEntriesAuditPage() {
       {/* Header */}
       <header className="be-header">
         <div className="be-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/cew-icon.png" alt="CEW" className="be-logo" />
           <div className="be-title-box">
             <h1>All Entries &amp; Approvals</h1>
             <p>
@@ -1977,6 +2004,19 @@ export default function AllEntriesAuditPage() {
             </button>
             <button
               type="button"
+              className="ae-btn-action delete-btn"
+              onClick={handleBulkDelete}
+              disabled={busy}
+              style={{
+                background: "#dc2626",
+                color: "#ffffff",
+                borderColor: "#b91c1c",
+              }}
+            >
+              <TrashIcon size={14} /> Delete Selected
+            </button>
+            <button
+              type="button"
               className="ae-btn-action"
               onClick={() => setSelectedUids(new Set())}
             >
@@ -2056,6 +2096,13 @@ export default function AllEntriesAuditPage() {
                   </tr>
                 ) : moduleFilter === "dealer_supplier" ? (
                   <tr>
+                    <th style={{ width: 34, textAlign: "center" }}>
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        onChange={handleSelectAll}
+                      />
+                    </th>
                     <th style={{ width: 95 }}>Date</th>
                     <th style={{ width: 115 }}>Bill No.</th>
                     <th style={{ minWidth: 150 }}>Item Description</th>
@@ -2071,6 +2118,13 @@ export default function AllEntriesAuditPage() {
                   </tr>
                 ) : moduleFilter === "customer_bill" ? (
                   <tr>
+                    <th style={{ width: 34, textAlign: "center", padding: "8px 4px" }}>
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        onChange={handleSelectAll}
+                      />
+                    </th>
                     <th style={{ width: 32, textAlign: "center", padding: "8px 4px" }}>SL</th>
                     <th style={{ width: 80, whiteSpace: "nowrap", padding: "8px 5px" }}>Date</th>
                     <th style={{ width: 62, whiteSpace: "nowrap", padding: "8px 5px" }}>Bill No</th>
@@ -2087,6 +2141,13 @@ export default function AllEntriesAuditPage() {
                   </tr>
                 ) : moduleFilter === "expense" ? (
                   <tr>
+                    <th style={{ width: 34, textAlign: "center" }}>
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        onChange={handleSelectAll}
+                      />
+                    </th>
                     <th style={{ width: 95 }}>Date</th>
                     <th style={{ minWidth: 160 }}>Title</th>
                     <th style={{ minWidth: 140 }}>Category</th>
@@ -2260,9 +2321,16 @@ export default function AllEntriesAuditPage() {
                           key={item.uid}
                           onClick={() => setSelectedCustomerBillForModal(item)}
                           className="be-row-interactive"
-                          style={{ cursor: "pointer" }}
+                          style={{ ...(isSelected ? { background: "#fef9c3" } : {}), cursor: "pointer" }}
                           title="Click to view full order details & edit/delete"
                         >
+                          <td style={{ textAlign: "center", padding: "7px 4px" }} onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleRowSelect(item.uid)}
+                            />
+                          </td>
                           <td style={{ textAlign: "center", color: "var(--be-text-muted)", fontSize: "0.8rem", padding: "7px 4px" }}>
                             {idx + 1}
                           </td>
@@ -2405,8 +2473,15 @@ export default function AllEntriesAuditPage() {
                             className="ae-ledger-row"
                             onClick={() => setSelectedPurchaseEntryForModal(item)}
                             title="Click to view full details, edit, or delete"
-                            style={{ background: billBg, borderBottom: rowBorderBottom, cursor: "pointer" }}
+                            style={{ ...(isSelected ? { background: "#fef9c3" } : { background: billBg }), borderBottom: rowBorderBottom, cursor: "pointer" }}
                           >
+                            <td style={{ textAlign: "center", verticalAlign: "top" }} onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleRowSelect(item.uid)}
+                              />
+                            </td>
                             <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>
                               {item.date}
                             </td>
@@ -2505,8 +2580,25 @@ export default function AllEntriesAuditPage() {
                               className="ae-ledger-row"
                               onClick={() => setSelectedPurchaseEntryForModal(item)}
                               title="Click to view full details, edit, or delete"
-                              style={{ background: billBg, cursor: "pointer" }}
+                              style={{ ...(isSelected ? { background: "#fef9c3" } : { background: billBg }), cursor: "pointer" }}
                             >
+                              {isFirstItem && (
+                                <td
+                                  rowSpan={itemsCount}
+                                  style={{
+                                    textAlign: "center",
+                                    verticalAlign: "top",
+                                    borderBottom: rowBorderBottom,
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => handleToggleRowSelect(item.uid)}
+                                  />
+                                </td>
+                              )}
                               {isFirstItem && (
                                 <td
                                   rowSpan={itemsCount}
@@ -2685,8 +2777,15 @@ export default function AllEntriesAuditPage() {
                           className="ae-ledger-row"
                           onClick={() => setSelectedPurchaseEntryForModal(item)}
                           title="Click to view full details, edit, or delete"
-                          style={{ background: billBg, borderBottom: rowBorderBottom, cursor: "pointer" }}
+                          style={{ ...(isSelected ? { background: "#fef9c3" } : { background: billBg }), borderBottom: rowBorderBottom, cursor: "pointer" }}
                         >
+                          <td style={{ textAlign: "center", verticalAlign: "top" }} onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleRowSelect(item.uid)}
+                            />
+                          </td>
                           <td style={{ verticalAlign: "top", whiteSpace: "nowrap" }}>
                             {item.date}
                           </td>
@@ -2775,8 +2874,15 @@ export default function AllEntriesAuditPage() {
                             setExpenseModalErr("");
                           }}
                           title="Click to view full expense details, edit, or delete"
-                          style={{ background: rowBg, cursor: "pointer" }}
+                          style={{ ...(isSelected ? { background: "#fef9c3" } : { background: rowBg }), cursor: "pointer" }}
                         >
+                          <td style={{ textAlign: "center", verticalAlign: "middle" }} onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleRowSelect(item.uid)}
+                            />
+                          </td>
                           <td style={{ verticalAlign: "middle", whiteSpace: "nowrap" }}>
                             {item.date}
                           </td>
@@ -3038,7 +3144,7 @@ export default function AllEntriesAuditPage() {
                 return (
                   <tfoot>
                     <tr style={{ background: "#f8fafc", fontWeight: 700 }}>
-                      <td colSpan={6} style={{ textAlign: "right", fontWeight: 700, textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.02em", padding: "10px 8px" }}>
+                      <td colSpan={7} style={{ textAlign: "right", fontWeight: 700, textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.02em", padding: "10px 8px" }}>
                         TOTAL ({filteredEntries.length} ENTRIES):
                       </td>
                       <td className="num" style={{ fontWeight: 800, color: "#0f172a", textAlign: "right", padding: "10px 8px", whiteSpace: "nowrap" }}>
@@ -3069,7 +3175,7 @@ export default function AllEntriesAuditPage() {
                 return (
                   <tfoot className="ex-tfoot">
                     <tr className="ex-tfoot-expense">
-                      <td colSpan={5} style={{ color: "#0f172a", padding: "12px 10px" }}>
+                      <td colSpan={6} style={{ color: "#0f172a", padding: "12px 10px" }}>
                         <strong>ACTUAL BUSINESS EXPENSES ({actualExpenses.length} entries)</strong>
                       </td>
                       <td style={{ textAlign: "right", color: "#0f172a", fontWeight: 800, padding: "12px 10px", whiteSpace: "nowrap" }}>
@@ -3079,7 +3185,7 @@ export default function AllEntriesAuditPage() {
                     </tr>
                     {totalDep > 0 && (
                       <tr className="ex-tfoot-deposit">
-                        <td colSpan={5} style={{ color: "#166534", padding: "12px 10px" }}>
+                        <td colSpan={6} style={{ color: "#166534", padding: "12px 10px" }}>
                           <strong style={{ color: "#166534" }}>BANK DEPOSITS / FUND TRANSFERS ({deposits.length} entries)</strong>
                           <span style={{ fontSize: "0.75rem", marginLeft: 8, color: "#15803d", fontWeight: 500 }}>(Excluded from expense to prevent double counting)</span>
                         </td>

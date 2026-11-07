@@ -1,8 +1,8 @@
 import "./bill.css";
 
 export const metadata = {
-  title: "Purchase | CEW",
-  description: "CEW dealer and supplier billing, payment and balance ledger calculator.",
+  title: "Purchase | Management Portal",
+  description: "Dealer and supplier billing, payment and balance ledger calculator.",
 };
 
 export default function BillLayout({ children }) {

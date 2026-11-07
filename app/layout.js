@@ -1,4 +1,6 @@
 import "./globals.css";
+import { Suspense } from "react";
+import NavigationProgress from "./NavigationProgress";
 
 export const metadata = {
   title: "Online Games | Portal",
@@ -32,12 +34,24 @@ export default function RootLayout({ children }) {
                     e.preventDefault();
                   }
                 }, true);
+
+                // Prevent mouse wheel from accidentally changing number input values (prices, amounts, quantities)
+                document.addEventListener('wheel', function(e) {
+                  if (document.activeElement && document.activeElement.type === 'number') {
+                    document.activeElement.blur();
+                  }
+                }, { passive: true });
               })();
             `,
           }}
         />
       </head>
-      <body className="font-sans text-slate-800 antialiased">{children}</body>
+      <body className="font-sans text-slate-800 antialiased">
+        <Suspense fallback={null}>
+          <NavigationProgress />
+        </Suspense>
+        {children}
+      </body>
     </html>
   );
 }

@@ -60,6 +60,20 @@ const PAGES = [
     ),
   },
   {
+    key: "staff",
+    href: "/staff",
+    title: "Staff & Attendance",
+    desc: "Monthly staff attendance sheet, overtime, expense sync & salary slips.",
+    icon: (
+      <>
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </>
+    ),
+  },
+  {
     key: "all_entries",
     href: "/all-entries",
     title: "All Entries & Approvals",
@@ -162,13 +176,9 @@ export default function RootDashboardPage() {
         <form className="entry-login-card" onSubmit={handleLogin}>
           <div className="login-header-nav">
             <div className="login-brand">
-              <div className="login-logo-box">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/cew-icon.png" alt="CEW Logo" />
-              </div>
               <div>
-                <h1 className="login-title">Chowdhury Engineering Works</h1>
-                <p className="login-company">Management Portal</p>
+                <h1 className="login-title">Management Portal</h1>
+                <p className="login-company">Business &amp; Accounts Management</p>
               </div>
             </div>
           </div>
@@ -220,15 +230,18 @@ export default function RootDashboardPage() {
 
   /* ---------- Dashboard ---------- */
   const isAdmin = user.role === "admin";
-  const allowed = PAGES.filter((p) => isAdmin || (user.permissions?.[p.key] || []).includes("view"));
+  const allowed = PAGES.filter(
+    (p) =>
+      isAdmin ||
+      (user.permissions?.[p.key] || []).includes("view") ||
+      (p.key === "staff" && (user.permissions?.expenses || []).includes("view"))
+  );
   const cards = isAdmin ? [...allowed, ADMIN_CARD] : allowed;
 
   return (
     <main className="be-wrapper">
       <header className="be-header">
         <div className="be-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/cew-icon.png" alt="CEW" className="be-logo" />
           <div className="be-title-box">
             <h1>Home Dashboard</h1>
             <p>
@@ -242,7 +255,7 @@ export default function RootDashboardPage() {
             type="button"
             onClick={handleLogout}
             className="be-nav-btn logout"
-            title="Sign out from CEW Portal"
+            title="Sign out from Portal"
             style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

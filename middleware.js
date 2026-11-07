@@ -9,11 +9,13 @@ function resolveTarget(pathname) {
   if (is("/purchase") || is("/bill-calculator")) return { page: "calculator", api: false };
   if (is("/sales") || is("/bill-entry")) return { page: "bill_entry", api: false };
   if (is("/expense") || is("/expenses")) return { page: "expenses", api: false };
+  if (is("/staff")) return { page: "staff", api: false };
   if (is("/admin")) return { page: "admin", api: false };
   if (is("/api/all-entries")) return { page: "all_entries", api: true };
   if (is("/api/entries") || is("/api/clients")) return { page: "calculator", api: true };
   if (is("/api/bill-entry")) return { page: "bill_entry", api: true };
   if (is("/api/expenses")) return { page: "expenses", api: true };
+  if (is("/api/staff")) return { page: "staff", api: true };
   return null;
 }
 
@@ -73,7 +75,10 @@ export async function middleware(req) {
   }
 
   const action = target.api ? actionFor(req, pathname) : "view";
-  if (!can(session, target.page, action)) {
+  const allowed =
+    can(session, target.page, action) ||
+    (target.page === "staff" && can(session, "expenses", action));
+  if (!allowed) {
     if (target.api) {
       return NextResponse.json({ error: "You do not have permission to do this." }, { status: 403 });
     }
@@ -100,6 +105,8 @@ export const config = {
     "/expense/:path*",
     "/expenses",
     "/expenses/:path*",
+    "/staff",
+    "/staff/:path*",
     "/admin",
     "/admin/:path*",
     "/api/entries",
@@ -110,5 +117,7 @@ export const config = {
     "/api/bill-entry/:path*",
     "/api/expenses",
     "/api/expenses/:path*",
+    "/api/staff",
+    "/api/staff/:path*",
   ],
 };

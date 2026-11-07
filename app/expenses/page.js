@@ -2155,11 +2155,9 @@ export default function ExpensesPage() {
     <main className="be-wrapper">
       <header className="be-header">
         <div className="be-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/cew-icon.png" alt="CEW" className="be-logo" />
           <div className="be-title-box">
             <h1>Expense</h1>
-            <p>Chowdhury Engineering Works • Daily, Weekly, Monthly &amp; Yearly Expenses</p>
+            <p>Daily, Weekly, Monthly &amp; Yearly Expenses</p>
           </div>
         </div>
         <nav className="be-nav-actions">

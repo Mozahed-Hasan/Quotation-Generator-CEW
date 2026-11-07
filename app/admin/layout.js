@@ -2,7 +2,7 @@ import "../bill-entry/entry.css";
 import "./admin.css";
 
 export const metadata = {
-  title: "Admin Panel | CEW",
+  title: "Admin Panel | Management Portal",
   description: "Manage system administrators, moderators, and role-based permissions.",
 };
 
