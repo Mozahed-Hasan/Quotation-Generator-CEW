@@ -16,6 +16,7 @@ import {
   ClockIcon,
   RefreshIcon,
 } from "@/lib/icons";
+import { getClientCache, setClientCache } from "@/lib/clientCache";
 
 const STATUS_OPTIONS = [
   { key: "Pending", label: "Pending", color: "#b45309", bg: "#fef3c7" },
@@ -43,15 +44,18 @@ function todayStr() {
 }
 
 export default function WorkOrdersPage() {
-  const [workOrders, setWorkOrders] = useState([]);
-  const [counts, setCounts] = useState({
-    total_count: 0,
-    pending_count: 0,
-    in_production_count: 0,
-    ready_count: 0,
-    delivered_count: 0,
-  });
-  const [loading, setLoading] = useState(true);
+  const [workOrders, setWorkOrders] = useState(() => getClientCache("wo_list", []));
+  const [counts, setCounts] = useState(() =>
+    getClientCache("wo_counts", {
+      total_count: 0,
+      pending_count: 0,
+      in_production_count: 0,
+      ready_count: 0,
+      delivered_count: 0,
+    })
+  );
+  const [initialLoading, setInitialLoading] = useState(() => !getClientCache("wo_counts"));
+  const [loading, setLoading] = useState(false);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState("all");
@@ -82,8 +86,14 @@ export default function WorkOrdersPage() {
       });
       const data = await res.json();
       if (data.ok) {
-        setWorkOrders(data.workOrders || []);
-        if (data.counts) setCounts(data.counts);
+        const wo = data.workOrders || [];
+        setWorkOrders(wo);
+        if (data.counts) {
+          setCounts(data.counts);
+          setClientCache("wo_counts", data.counts);
+        }
+        setClientCache("wo_list", wo);
+        setInitialLoading(false);
       }
     } catch (err) {
       console.error("Failed to load work orders:", err);
@@ -384,7 +394,7 @@ export default function WorkOrdersPage() {
             <span className="wo-stat-label">Total Work Orders</span>
             <ClipboardListIcon size={18} color="#2563eb" />
           </div>
-          <div className="wo-stat-val">{counts.total_count}</div>
+          <div className="wo-stat-val">{initialLoading ? <span className="cew-skeleton-pill" /> : counts.total_count}</div>
           <span className="wo-stat-sub">All active jobs</span>
         </div>
 
@@ -397,7 +407,7 @@ export default function WorkOrdersPage() {
             <ClockIcon size={18} color="#b45309" />
           </div>
           <div className="wo-stat-val" style={{ color: "#b45309" }}>
-            {counts.pending_count}
+            {initialLoading ? <span className="cew-skeleton-pill" /> : counts.pending_count}
           </div>
           <span className="wo-stat-sub">Waiting for production</span>
         </div>
@@ -411,7 +421,7 @@ export default function WorkOrdersPage() {
             <RefreshIcon size={18} color="#1d4ed8" />
           </div>
           <div className="wo-stat-val" style={{ color: "#1d4ed8" }}>
-            {counts.in_production_count}
+            {initialLoading ? <span className="cew-skeleton-pill" /> : counts.in_production_count}
           </div>
           <span className="wo-stat-sub">Fabrication in progress</span>
         </div>
@@ -425,7 +435,7 @@ export default function WorkOrdersPage() {
             <CheckIcon size={18} color="#6d28d9" />
           </div>
           <div className="wo-stat-val" style={{ color: "#6d28d9" }}>
-            {counts.ready_count}
+            {initialLoading ? <span className="cew-skeleton-pill" /> : counts.ready_count}
           </div>
           <span className="wo-stat-sub">Awaiting delivery</span>
         </div>
@@ -439,7 +449,7 @@ export default function WorkOrdersPage() {
             <TruckIcon size={18} color="#15803d" />
           </div>
           <div className="wo-stat-val" style={{ color: "#15803d" }}>
-            {counts.delivered_count}
+            {initialLoading ? <span className="cew-skeleton-pill" /> : counts.delivered_count}
           </div>
           <span className="wo-stat-sub">Completed &amp; shipped</span>
         </div>

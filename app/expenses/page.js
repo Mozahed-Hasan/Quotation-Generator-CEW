@@ -27,6 +27,7 @@ import {
   EditIcon,
   BarChartIcon,
 } from "@/lib/icons";
+import { getClientCache, setClientCache } from "@/lib/clientCache";
 
 const CATEGORIES = [
   "General",
@@ -269,9 +270,10 @@ const defaultForm = () => ({
 
 export default function ExpensesPage() {
   const router = useRouter();
-  const [expenses, setExpenses] = useState([]);
-  const [salesBills, setSalesBills] = useState([]);
-  const [clients, setClients] = useState([]);
+  const [expenses, setExpenses] = useState(() => getClientCache("expenses_list", []));
+  const [salesBills, setSalesBills] = useState(() => getClientCache("sales_bills", []));
+  const [clients, setClients] = useState(() => getClientCache("expenses_clients", []));
+  const [initialLoading, setInitialLoading] = useState(() => !getClientCache("expenses_list"));
   const [form, setForm] = useState(defaultForm());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -337,9 +339,15 @@ export default function ExpensesPage() {
       const res = await fetch("/api/expenses");
       if (res.status === 401) return router.replace("/");
       const data = await res.json();
-      if (res.ok) setExpenses(data.expenses || []);
+      if (res.ok) {
+        const x = data.expenses || [];
+        setExpenses(x);
+        setClientCache("expenses_list", x);
+        setInitialLoading(false);
+      }
     } catch (e) {
       console.error(e);
+      setInitialLoading(false);
     }
     loadSalesBills();
   }
@@ -349,7 +357,9 @@ export default function ExpensesPage() {
       const res = await fetch("/api/bill-entry");
       if (res.ok) {
         const data = await res.json();
-        setSalesBills(data.bills || []);
+        const b = data.bills || [];
+        setSalesBills(b);
+        setClientCache("sales_bills", b);
       }
     } catch (e) {
       console.error("Failed to load sales bills for cash in hand sync", e);
@@ -361,7 +371,9 @@ export default function ExpensesPage() {
       const res = await fetch("/api/clients");
       if (res.ok) {
         const list = await res.json();
-        setClients(list || []);
+        const c = list || [];
+        setClients(c);
+        setClientCache("expenses_clients", c);
       }
     } catch (e) {
       console.error("Failed to load clients list", e);
@@ -2272,27 +2284,27 @@ export default function ExpensesPage() {
       <section className="be-stats-grid">
         <div className="be-stat-card">
           <span className="label">Business Expense • {kpiRange.label}</span>
-          <span className="val">৳ {fmt(kpiActualExpense)}</span>
+          <span className="val">{initialLoading ? <span className="cew-skeleton-pill" /> : `Tk. ${fmt(kpiActualExpense)}`}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4, fontSize: "0.76rem", fontWeight: 600, color: "#64748b" }}>
-            <span>Bank: <span style={{ color: "#0f172a", fontWeight: 700 }}>৳ {fmt(kpiBankExpense)}</span></span>
+            <span>Bank: <span style={{ color: "#0f172a", fontWeight: 700 }}>Tk. {fmt(kpiBankExpense)}</span></span>
             <span style={{ color: "#cbd5e1" }}>•</span>
-            <span>Cash: <span style={{ color: "#0f172a", fontWeight: 700 }}>৳ {fmt(kpiCashExpense)}</span></span>
+            <span>Cash: <span style={{ color: "#0f172a", fontWeight: 700 }}>Tk. {fmt(kpiCashExpense)}</span></span>
           </div>
         </div>
         <div className="be-stat-card deposit">
           <span className="label">Bank Deposits • {kpiRange.label}</span>
-          <span className="val">৳ {fmt(kpiDeposits)}</span>
+          <span className="val">{initialLoading ? <span className="cew-skeleton-pill" /> : `Tk. ${fmt(kpiDeposits)}`}</span>
         </div>
         <div className="be-stat-card bank">
           <span className="label">Live Bank Balance (Net)</span>
-          <span className="val">৳ {fmt(bankAccountSummary.netBalance)}</span>
+          <span className="val">{initialLoading ? <span className="cew-skeleton-pill" /> : `Tk. ${fmt(bankAccountSummary.netBalance)}`}</span>
         </div>
         <div className="be-stat-card inflow" style={{ background: "#eff6ff", borderColor: "#bfdbfe" }}>
           <span className="label" style={{ color: "#1e40af" }}>
             Cash Inflow • {kpiRange.label}
           </span>
           <span className="val" style={{ color: "#1d4ed8" }}>
-            ৳ {fmt(kpiMode === "all" ? kpiCashSummary.allTimeSalesCash : kpiCashSummary.periodSalesCash)}
+            {initialLoading ? <span className="cew-skeleton-pill" /> : `Tk. ${fmt(kpiMode === "all" ? kpiCashSummary.allTimeSalesCash : kpiCashSummary.periodSalesCash)}`}
           </span>
         </div>
         <div className="be-stat-card cash" style={{ background: "#f0fdf4", borderColor: "#bbf7d0" }}>
@@ -2300,7 +2312,7 @@ export default function ExpensesPage() {
             Cash in Hand • {kpiRange.label}
           </span>
           <span className="val" style={{ color: (kpiMode === "all" ? kpiCashSummary.allTimeNetCashInHand : kpiCashSummary.totalClosingCashInHand) >= 0 ? "#15803d" : "#b91c1c" }}>
-            ৳ {fmt(kpiMode === "all" ? kpiCashSummary.allTimeNetCashInHand : kpiCashSummary.totalClosingCashInHand)}
+            {initialLoading ? <span className="cew-skeleton-pill" /> : `Tk. ${fmt(kpiMode === "all" ? kpiCashSummary.allTimeNetCashInHand : kpiCashSummary.totalClosingCashInHand)}`}
           </span>
           {kpiMode !== "all" && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, fontSize: "0.75rem", fontWeight: 600, color: "#64748b", flexWrap: "wrap" }}>

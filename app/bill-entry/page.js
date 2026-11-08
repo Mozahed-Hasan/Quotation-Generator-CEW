@@ -6,6 +6,7 @@ import TopPageNav from "@/lib/TopPageNav";
 import { takaInWords } from "@/lib/words";
 import * as XLSX from "xlsx-js-style";
 import { XIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, BarChartIcon } from "@/lib/icons";
+import { getClientCache, setClientCache } from "@/lib/clientCache";
 import {
   batchTranslateTable,
   toBengaliDigits,
@@ -243,8 +244,9 @@ const fmt = (n) =>
 export default function BillEntryPage() {
   const router = useRouter();
   const [form, setForm] = useState(defaultForm());
-  const [bills, setBills] = useState([]);
-  const [customers, setCustomers] = useState([]);
+  const [bills, setBills] = useState(() => getClientCache("sales_bills", []));
+  const [customers, setCustomers] = useState(() => getClientCache("sales_customers", []));
+  const [initialLoading, setInitialLoading] = useState(() => !getClientCache("sales_bills"));
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -385,12 +387,19 @@ export default function BillEntryPage() {
       }
       const data = await res.json();
       if (res.ok) {
-        setBills(data.bills || []);
-        setCustomers(data.customers || []);
-        setRecycleBinItems(data.recycleBinItems || []);
+        const b = data.bills || [];
+        const c = data.customers || [];
+        const rb = data.recycleBinItems || [];
+        setBills(b);
+        setCustomers(c);
+        setRecycleBinItems(rb);
+        setInitialLoading(false);
+        setClientCache("sales_bills", b);
+        setClientCache("sales_customers", c);
       }
     } catch (e) {
       console.error("Failed to load bills:", e);
+      setInitialLoading(false);
     }
   }
 
@@ -2890,15 +2899,15 @@ export default function BillEntryPage() {
       <section className="be-stats-grid">
         <div className="be-stat-card">
           <span className="label">Total Invoices • {kpiRange.label}</span>
-          <span className="val">{kpiTotalInvoices}</span>
+          <span className="val">{initialLoading ? <span className="cew-skeleton-pill" /> : kpiTotalInvoices}</span>
         </div>
         <div className="be-stat-card">
           <span className="label">Total Billed • {kpiRange.label}</span>
-          <span className="val">৳ {fmt(kpiTotalBilled)}</span>
+          <span className="val">{initialLoading ? <span className="cew-skeleton-pill" /> : `Tk. ${fmt(kpiTotalBilled)}`}</span>
         </div>
         <div className="be-stat-card paid">
           <span className="label">Total Collected • {kpiRange.label}</span>
-          <span className="val">৳ {fmt(kpiTotalCollected)}</span>
+          <span className="val">{initialLoading ? <span className="cew-skeleton-pill" /> : `Tk. ${fmt(kpiTotalCollected)}`}</span>
         </div>
       </section>
 

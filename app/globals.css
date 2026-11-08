@@ -212,3 +212,28 @@ input[type="number"] {
     font-size: 0.78rem;
   }
 }
+
+/* Universal Fast Skeleton Pulse for Instant Perceived Performance */
+@keyframes cewPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.cew-skeleton-text {
+  display: inline-block;
+  height: 1.15em;
+  min-width: 50px;
+  background: #cbd5e1;
+  border-radius: 4px;
+  animation: cewPulse 1.1s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+.cew-skeleton-pill {
+  display: inline-block;
+  height: 22px;
+  width: 70px;
+  background: #cbd5e1;
+  border-radius: 6px;
+  animation: cewPulse 1.1s ease-in-out infinite;
+}

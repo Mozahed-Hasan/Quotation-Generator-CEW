@@ -5,6 +5,7 @@ import { generateBillPdf } from "@/lib/billPdf";
 import * as XLSX from "xlsx";
 import { HomeIcon } from "@/lib/icons";
 import TopPageNav from "@/lib/TopPageNav";
+import { getClientCache, setClientCache } from "@/lib/clientCache";
 
 // SVG Icons
 function UserIcon({ size = 18 }) {
@@ -189,7 +190,7 @@ const fmt = (n) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigit
 
 export default function Home() {
   const router = useRouter();
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] = useState(() => getClientCache("purchase_rows", []));
   const [selectedClient, setSelectedClient] = useState("");
   const [clientSearch, setClientSearch] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
@@ -237,6 +238,7 @@ export default function Home() {
         setErr(d.error || "Failed to load data");
       } else {
         setRows(d);
+        setClientCache("purchase_rows", d);
         setErr("");
       }
 
