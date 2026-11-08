@@ -316,6 +316,14 @@ export default function BillEntryPage() {
   });
   const [woCreatingFromBill, setWoCreatingFromBill] = useState(false);
 
+  // Customer Merge Modal States
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [sourceCid, setSourceCid] = useState("");
+  const [targetCid, setTargetCid] = useState("");
+  const [mergeBusy, setMergeBusy] = useState(false);
+  const [mergeErr, setMergeErr] = useState("");
+  const [mergeSuccess, setMergeSuccess] = useState("");
+
   async function handleCreateWorkOrderFromBill(b) {
     if (!window.confirm(`Create a Work Order for Invoice #${b.bill_no || b.id} (${b.customer_name})?`)) {
       return;
@@ -399,6 +407,7 @@ export default function BillEntryPage() {
           customer_id: c.customer_id,
           name: c.name || "",
           mobile: c.mobile || "",
+          alt_mobile: c.alt_mobile || "",
           address: c.address || "",
         });
       }
@@ -409,6 +418,7 @@ export default function BillEntryPage() {
           customer_id: b.customer_id,
           name: b.customer_name || "",
           mobile: b.customer_mobile || "",
+          alt_mobile: "",
           address: b.customer_address || "",
         });
       }
@@ -491,9 +501,13 @@ export default function BillEntryPage() {
       return;
     }
 
-    // 3) Look for existing customer matching the EXACT same phone number digits
+    // 3) Look for existing customer matching primary or alternative phone numbers
     const existing =
-      customers.find((c) => String(c.mobile || "").replace(/[^0-9]/g, "") === rawMobile) ||
+      customers.find((c) => {
+        const m1 = String(c.mobile || "").replace(/[^0-9]/g, "");
+        const m2 = String(c.alt_mobile || "").replace(/[^0-9]/g, "");
+        return (m1 && m1 === rawMobile) || (m2 && m2.includes(rawMobile));
+      }) ||
       bills.find((b) => String(b.customer_mobile || "").replace(/[^0-9]/g, "") === rawMobile);
 
     if (existing) {
@@ -583,6 +597,116 @@ export default function BillEntryPage() {
       lastBillDate: lastBill?.bill_date || null,
     };
   }, [customerPastBills]);
+
+  // Customer Merge Helpers
+  const getCustomerSummaryByCid = (cid) => {
+    if (!cid) return null;
+    const cleanCid = String(cid).trim().toLowerCase();
+    const profile = allKnownCustomerProfiles.find(
+      (c) => c.customer_id && c.customer_id.toLowerCase() === cleanCid
+    );
+    const customerBills = bills.filter(
+      (b) => b.customer_id && b.customer_id.toLowerCase() === cleanCid
+    );
+    const totalBilled = customerBills.reduce((s, b) => s + (Number(b.total_bill) || 0), 0);
+    const totalPaid = customerBills.reduce((s, b) => s + (Number(b.client_payment) || 0), 0);
+    const netDue = customerBills.reduce((s, b) => s + (Number(b.due_advance) || 0), 0);
+
+    return {
+      profile,
+      billsCount: customerBills.length,
+      totalBilled,
+      totalPaid,
+      netDue,
+    };
+  };
+
+  const sourceSummary = useMemo(() => getCustomerSummaryByCid(sourceCid), [sourceCid, allKnownCustomerProfiles, bills]);
+  const targetSummary = useMemo(() => getCustomerSummaryByCid(targetCid), [targetCid, allKnownCustomerProfiles, bills]);
+
+  function openMergeModal(prefillCid = "") {
+    setMergeErr("");
+    setMergeSuccess("");
+    if (prefillCid) {
+      setSourceCid(prefillCid);
+      setTargetCid("");
+    } else if (form.customer_id) {
+      setSourceCid(form.customer_id);
+      setTargetCid("");
+    } else {
+      setSourceCid("");
+      setTargetCid("");
+    }
+    setMergeModalOpen(true);
+  }
+
+  async function handleExecuteMerge() {
+    if (!sourceCid.trim()) {
+      setMergeErr("Please select the secondary/duplicate customer to merge");
+      return;
+    }
+    if (!targetCid.trim()) {
+      setMergeErr("Please select the primary customer account to merge into");
+      return;
+    }
+    if (sourceCid.trim().toLowerCase() === targetCid.trim().toLowerCase()) {
+      setMergeErr("Source and target customer cannot be the exact same account");
+      return;
+    }
+
+    setMergeBusy(true);
+    setMergeErr("");
+    setMergeSuccess("");
+
+    try {
+      const res = await fetch("/api/customers/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceCustomerId: sourceCid.trim(),
+          targetCustomerId: targetCid.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setMergeErr(data.error || "Failed to merge customer accounts");
+        return;
+      }
+
+      setMergeSuccess(
+        `Successfully merged ${data.result.sourceCustomerId} into ${data.result.targetCustomerId}! Transferred ${data.result.billsTransferred} bill(s). Secondary phone (${data.result.altMobile || "linked"}) has been preserved.`
+      );
+
+      // Reload fresh bills and customers
+      await loadData();
+
+      // If form was using the source customer, switch form to target customer
+      if (form.customer_id && form.customer_id.toLowerCase() === sourceCid.trim().toLowerCase()) {
+        const targetProf = allKnownCustomerProfiles.find(
+          (c) => c.customer_id && c.customer_id.toLowerCase() === targetCid.trim().toLowerCase()
+        );
+        if (targetProf) {
+          setForm((prev) => ({
+            ...prev,
+            customer_id: targetProf.customer_id,
+            customer_name: targetProf.name || prev.customer_name,
+            customer_mobile: targetProf.mobile || prev.customer_mobile,
+            customer_address: targetProf.address || prev.customer_address,
+          }));
+        }
+      }
+
+      setTimeout(() => {
+        setMergeModalOpen(false);
+      }, 1800);
+    } catch (err) {
+      console.error("Error executing merge:", err);
+      setMergeErr("Network error while merging customer accounts");
+    } finally {
+      setMergeBusy(false);
+    }
+  }
 
   // Multiple Items Management
   const handleAddItem = () => {
@@ -2812,8 +2936,37 @@ export default function BillEntryPage() {
         >
           {/* Section 1: Bill Meta & Customer Info */}
           <div className="be-form-section">
-            <div className="be-section-heading">
-              <span>1. Invoice & Customer Information</span>
+            <div className="be-section-heading" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+              <span>1. Invoice &amp; Customer Information</span>
+              <button
+                type="button"
+                onClick={() => openMergeModal()}
+                style={{
+                  background: "#eff6ff",
+                  color: "#1e40af",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: "6px",
+                  padding: "4px 10px",
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  textTransform: "none",
+                  letterSpacing: "normal",
+                  transition: "all 0.15s ease",
+                }}
+                title="Merge duplicate customer accounts created with different phone numbers"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="8.5" cy="7" r="4" />
+                  <line x1="18" y1="8" x2="23" y2="13" />
+                  <line x1="23" y1="8" x2="18" y2="13" />
+                </svg>
+                <span>Merge Duplicate Accounts</span>
+              </button>
             </div>
 
             {/* Row 1: Date, Bill No, Mobile No */}
@@ -6530,6 +6683,227 @@ export default function BillEntryPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOMER MERGE MODAL */}
+      {mergeModalOpen && (
+        <div className="cust-merge-modal-overlay">
+          <div className="cust-merge-modal-card">
+            {/* Header */}
+            <div className="cust-merge-modal-header">
+              <div>
+                <h2 style={{ fontSize: "1.05rem", fontWeight: 800, margin: 0, color: "#0f172a" }}>
+                  Merge Duplicate Customer Accounts
+                </h2>
+                <p style={{ margin: "3px 0 0", fontSize: "0.78rem", color: "#64748b" }}>
+                  Consolidate duplicate accounts created with different phone numbers into one primary customer.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMergeModalOpen(false)}
+                style={{ background: "transparent", border: "none", cursor: "pointer", color: "#64748b" }}
+              >
+                <XIcon size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="cust-merge-modal-body">
+              {mergeErr && (
+                <div style={{ background: "#fee2e2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: 8, fontSize: "0.82rem", fontWeight: 700, marginBottom: 14 }}>
+                  {mergeErr}
+                </div>
+              )}
+
+              {mergeSuccess && (
+                <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", padding: "8px 12px", borderRadius: 8, fontSize: "0.82rem", fontWeight: 700, marginBottom: 14 }}>
+                  {mergeSuccess}
+                </div>
+              )}
+
+              {/* Two Column Grid: Source vs Target */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                {/* Column 1: Source (Duplicate to remove) */}
+                <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: 14 }}>
+                  <div style={{ fontSize: "0.8rem", fontWeight: 800, color: "#991b1b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                    1. Duplicate Account (To Merge &amp; Archive)
+                  </div>
+                  <p style={{ fontSize: "0.74rem", color: "#7f1d1d", margin: "0 0 10px" }}>
+                    Select the customer record created with the alternate number.
+                  </p>
+
+                  <div className="be-field-group">
+                    <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>
+                      Select Duplicate Customer:
+                    </label>
+                    <input
+                      type="text"
+                      className="be-input"
+                      placeholder="Type CID, mobile, or name..."
+                      list="merge-source-list"
+                      value={sourceCid}
+                      onChange={(e) => setSourceCid(e.target.value)}
+                      style={{ fontSize: "0.82rem", background: "#ffffff" }}
+                    />
+                    <datalist id="merge-source-list">
+                      {allKnownCustomerProfiles.map((c) => (
+                        <option key={c.customer_id} value={c.customer_id}>
+                          {c.customer_id} • {c.name || "Customer"} • {c.mobile || ""}
+                        </option>
+                      ))}
+                    </datalist>
+                  </div>
+
+                  {sourceSummary?.profile ? (
+                    <div className="cust-merge-summary-card" style={{ background: "#ffffff", borderColor: "#fca5a5" }}>
+                      <div style={{ fontWeight: 800, color: "#0f172a", fontSize: "0.88rem" }}>
+                        {sourceSummary.profile.name || "Customer Name"}
+                      </div>
+                      <div style={{ fontSize: "0.76rem", color: "#475569", marginTop: 2 }}>
+                        CID: <b>{sourceSummary.profile.customer_id}</b>
+                      </div>
+                      <div style={{ fontSize: "0.76rem", color: "#475569" }}>
+                        Primary Phone: <b>{sourceSummary.profile.mobile || "N/A"}</b>
+                      </div>
+                      {sourceSummary.profile.address && (
+                        <div style={{ fontSize: "0.74rem", color: "#64748b" }}>
+                          Address: {sourceSummary.profile.address}
+                        </div>
+                      )}
+                      <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px dashed #e2e8f0", display: "flex", justifyContent: "space-between" }}>
+                        <span>Bills to transfer: <b>{sourceSummary.billsCount}</b></span>
+                        <span style={{ color: sourceSummary.netDue > 0 ? "#dc2626" : "#059669", fontWeight: 700 }}>
+                          {sourceSummary.netDue > 0 ? `Due: Tk. ${fmt(sourceSummary.netDue)}` : `Adv: Tk. ${fmt(Math.abs(sourceSummary.netDue))}`}
+                        </span>
+                      </div>
+                    </div>
+                  ) : sourceCid ? (
+                    <div style={{ fontSize: "0.75rem", color: "#b91c1c", marginTop: 6 }}>
+                      No matching customer found for &quot;{sourceCid}&quot;
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Column 2: Target (Primary to keep) */}
+                <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: 14 }}>
+                  <div style={{ fontSize: "0.8rem", fontWeight: 800, color: "#1e40af", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                    2. Primary Account (To Keep as Master)
+                  </div>
+                  <p style={{ fontSize: "0.74rem", color: "#1e3a8a", margin: "0 0 10px" }}>
+                    Select the main customer profile where all bills will be consolidated.
+                  </p>
+
+                  <div className="be-field-group">
+                    <label style={{ fontSize: "0.78rem", fontWeight: 700, color: "#475569" }}>
+                      Select Primary Customer:
+                    </label>
+                    <input
+                      type="text"
+                      className="be-input"
+                      placeholder="Type CID, mobile, or name..."
+                      list="merge-target-list"
+                      value={targetCid}
+                      onChange={(e) => setTargetCid(e.target.value)}
+                      style={{ fontSize: "0.82rem", background: "#ffffff" }}
+                    />
+                    <datalist id="merge-target-list">
+                      {allKnownCustomerProfiles.map((c) => (
+                        <option key={c.customer_id} value={c.customer_id}>
+                          {c.customer_id} • {c.name || "Customer"} • {c.mobile || ""}
+                        </option>
+                      ))}
+                    </datalist>
+                  </div>
+
+                  {targetSummary?.profile ? (
+                    <div className="cust-merge-summary-card" style={{ background: "#ffffff", borderColor: "#93c5fd" }}>
+                      <div style={{ fontWeight: 800, color: "#0f172a", fontSize: "0.88rem" }}>
+                        {targetSummary.profile.name || "Customer Name"}
+                      </div>
+                      <div style={{ fontSize: "0.76rem", color: "#475569", marginTop: 2 }}>
+                        CID: <b>{targetSummary.profile.customer_id}</b>
+                      </div>
+                      <div style={{ fontSize: "0.76rem", color: "#475569" }}>
+                        Primary Phone: <b>{targetSummary.profile.mobile || "N/A"}</b>
+                      </div>
+                      {targetSummary.profile.alt_mobile && (
+                        <div style={{ fontSize: "0.74rem", color: "#0369a1" }}>
+                          Alt Phone(s): {targetSummary.profile.alt_mobile}
+                        </div>
+                      )}
+                      {targetSummary.profile.address && (
+                        <div style={{ fontSize: "0.74rem", color: "#64748b" }}>
+                          Address: {targetSummary.profile.address}
+                        </div>
+                      )}
+                      <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px dashed #e2e8f0", display: "flex", justifyContent: "space-between" }}>
+                        <span>Existing bills: <b>{targetSummary.billsCount}</b></span>
+                        <span style={{ color: targetSummary.netDue > 0 ? "#dc2626" : "#059669", fontWeight: 700 }}>
+                          {targetSummary.netDue > 0 ? `Due: Tk. ${fmt(targetSummary.netDue)}` : `Adv: Tk. ${fmt(Math.abs(targetSummary.netDue))}`}
+                        </span>
+                      </div>
+                    </div>
+                  ) : targetCid ? (
+                    <div style={{ fontSize: "0.75rem", color: "#1e40af", marginTop: 6 }}>
+                      No matching customer found for &quot;{targetCid}&quot;
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* Action Plan Summary Box */}
+              {sourceSummary?.profile && targetSummary?.profile && (
+                <div style={{ marginTop: 16, background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "#0f172a", marginBottom: 4 }}>
+                    Merge Summary:
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: "0.78rem", color: "#334155", lineHeight: 1.5 }}>
+                    <li>
+                      <b>{sourceSummary.billsCount} past bill(s)</b> from <b>{sourceSummary.profile.name} ({sourceSummary.profile.customer_id})</b> will be transferred to <b>{targetSummary.profile.name} ({targetSummary.profile.customer_id})</b>.
+                    </li>
+                    <li>
+                      Duplicate phone number <b>{sourceSummary.profile.mobile || "N/A"}</b> will be linked to the primary customer profile as an alternative contact.
+                    </li>
+                    <li>
+                      The duplicate account <b>{sourceSummary.profile.customer_id}</b> will be safely archived.
+                    </li>
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="cust-merge-modal-footer">
+              <button
+                type="button"
+                className="be-btn"
+                onClick={() => setMergeModalOpen(false)}
+                disabled={mergeBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="be-btn be-btn-primary"
+                onClick={handleExecuteMerge}
+                disabled={mergeBusy || !sourceSummary?.profile || !targetSummary?.profile}
+                style={{
+                  background: "var(--be-primary, #991b1b)",
+                  color: "#ffffff",
+                  border: "none",
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  fontWeight: 700,
+                  fontSize: "0.82rem",
+                  cursor: mergeBusy || !sourceSummary?.profile || !targetSummary?.profile ? "not-allowed" : "pointer",
+                }}
+              >
+                {mergeBusy ? "Merging Accounts..." : "Confirm & Merge Accounts"}
+              </button>
+            </div>
           </div>
         </div>
       )}
