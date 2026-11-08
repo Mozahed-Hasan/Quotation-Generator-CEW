@@ -39,22 +39,83 @@ export default function AdminPanelPage() {
   const [editTarget, setEditTarget] = useState(null);
   const [newPassword, setNewPassword] = useState("");
 
+  // Emergency Database Privacy Cloak States
+  const [cloakStatus, setCloakStatus] = useState({ locked: false, updated_at: null, updated_by: null });
+  const [cloakBusy, setCloakBusy] = useState(false);
+  const [cloakMsg, setCloakMsg] = useState("");
+
+  async function loadCloak() {
+    try {
+      const res = await fetch("/api/admin/cloak", { cache: "no-store" });
+      const d = await res.json();
+      if (res.ok && d.ok) {
+        setCloakStatus({
+          locked: d.locked,
+          updated_at: d.updated_at,
+          updated_by: d.updated_by,
+        });
+      }
+    } catch (e) {
+      console.error("Failed to load cloak status:", e);
+    }
+  }
+
+  async function handleToggleCloak() {
+    const nextLocked = !cloakStatus.locked;
+    const confirmText = nextLocked
+      ? "ACTIVATE EMERGENCY PRIVACY CLOAK?\n\nThis will immediately disconnect and hide all financial records, sales, expenses, and client data from all office computers and non-admin screens. You can restore it at any time from this page."
+      : "DEACTIVATE CLOAK & RESTORE DATABASE ONLINE?\n\nThis will restore all live database operations and make records visible to authorized users.";
+
+    if (!window.confirm(confirmText)) return;
+
+    setCloakBusy(true);
+    setCloakMsg("");
+    try {
+      const res = await fetch("/api/admin/cloak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locked: nextLocked }),
+      });
+      const d = await res.json();
+      if (res.ok && d.ok) {
+        setCloakStatus({
+          locked: d.locked,
+          updated_at: d.updated_at,
+          updated_by: d.updated_by,
+        });
+        setCloakMsg(d.message);
+      } else {
+        alert(d.error || "Failed to update cloak status");
+      }
+    } catch (e) {
+      console.error("Cloak toggle error:", e);
+      alert("Network error updating cloak status");
+    } finally {
+      setCloakBusy(false);
+    }
+  }
+
   async function loadData() {
     try {
       setLoading(true);
-      const res = await fetch("/api/admin/users", { cache: "no-store" });
-      if (res.status === 401 || res.status === 403) {
-        router.replace("/?denied=1");
-        return;
-      }
-      const data = await res.json();
-      if (res.ok) {
-        setUsers(data.users || []);
-        setOwnerUsername(data.owner || "admin");
-        setCurrentUser(data.me || null);
-      } else {
-        setErrMsg(data.error || "Failed to load user list");
-      }
+      await Promise.all([
+        (async () => {
+          const res = await fetch("/api/admin/users", { cache: "no-store" });
+          if (res.status === 401 || res.status === 403) {
+            router.replace("/?denied=1");
+            return;
+          }
+          const data = await res.json();
+          if (res.ok) {
+            setUsers(data.users || []);
+            setOwnerUsername(data.owner || "admin");
+            setCurrentUser(data.me || null);
+          } else {
+            setErrMsg(data.error || "Failed to load user list");
+          }
+        })(),
+        loadCloak(),
+      ]);
     } catch (e) {
       setErrMsg(e.message || "Network error loading users");
     } finally {
@@ -350,6 +411,132 @@ export default function AdminPanelPage() {
           {successMsg}
         </div>
       )}
+
+      {/* Emergency Database Privacy Cloak (Mobile Kill-Switch) */}
+      <section
+        className="be-card"
+        style={{
+          marginBottom: "20px",
+          border: cloakStatus.locked ? "2px solid #ef4444" : "1px solid var(--be-border, #e2e8f0)",
+          background: cloakStatus.locked ? "#fff5f5" : "#ffffff",
+          transition: "all 0.2s ease",
+        }}
+      >
+        <div style={{ padding: "18px 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 260 }}>
+              <div
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: "10px",
+                  background: cloakStatus.locked ? "#fee2e2" : "#eff6ff",
+                  color: cloakStatus.locked ? "#dc2626" : "#1d4ed8",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+              </div>
+
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <h2 style={{ fontSize: "1.05rem", fontWeight: 800, margin: 0, color: "#0f172a" }}>
+                    Emergency Database Privacy Cloak
+                  </h2>
+                  <span
+                    style={{
+                      fontSize: "0.72rem",
+                      fontWeight: 800,
+                      padding: "3px 9px",
+                      borderRadius: 12,
+                      background: cloakStatus.locked ? "#fee2e2" : "#ecfdf5",
+                      color: cloakStatus.locked ? "#b91c1c" : "#047857",
+                      border: `1px solid ${cloakStatus.locked ? "#fca5a5" : "#a7f3d0"}`,
+                      letterSpacing: "0.3px",
+                    }}
+                  >
+                    {cloakStatus.locked ? "CLOAK ACTIVE - ALL DATA HIDDEN" : "DATABASE LIVE & CONNECTED"}
+                  </span>
+                </div>
+                <p style={{ margin: "3px 0 0", fontSize: "0.8rem", color: "#64748b" }}>
+                  Mobile Kill-Switch: Instantly disconnects and cloaks all financial, sales, expense, and client data from non-admin screens.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleToggleCloak}
+              disabled={cloakBusy}
+              style={{
+                background: cloakStatus.locked ? "#059669" : "#dc2626",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "8px",
+                padding: "10px 20px",
+                fontSize: "0.84rem",
+                fontWeight: 800,
+                cursor: cloakBusy ? "not-allowed" : "pointer",
+                boxShadow: cloakStatus.locked
+                  ? "0 2px 6px rgba(5, 150, 105, 0.3)"
+                  : "0 2px 6px rgba(220, 38, 38, 0.3)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                transition: "all 0.15s ease",
+              }}
+            >
+              {cloakBusy ? (
+                <span>Updating Status...</span>
+              ) : cloakStatus.locked ? (
+                <>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>Restore Database Online</span>
+                </>
+              ) : (
+                <>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                  </svg>
+                  <span>Activate Privacy Cloak (Hide Data)</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {cloakMsg && (
+            <div
+              style={{
+                marginTop: 12,
+                background: cloakStatus.locked ? "#fee2e2" : "#ecfdf5",
+                color: cloakStatus.locked ? "#991b1b" : "#065f46",
+                border: `1px solid ${cloakStatus.locked ? "#fecaca" : "#a7f3d0"}`,
+                padding: "8px 12px",
+                borderRadius: 6,
+                fontSize: "0.8rem",
+                fontWeight: 700,
+              }}
+            >
+              {cloakMsg}
+            </div>
+          )}
+
+          {cloakStatus.updated_at && (
+            <div style={{ fontSize: "0.74rem", color: "#64748b", marginTop: 8 }}>
+              Last modified: <b>{new Date(cloakStatus.updated_at).toLocaleString()}</b> by <b>{cloakStatus.updated_by || "Admin"}</b>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Main Users Table Section */}
       <section className="be-card">

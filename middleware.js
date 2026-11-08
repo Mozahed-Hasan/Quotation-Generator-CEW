@@ -11,7 +11,7 @@ function resolveTarget(pathname) {
   if (is("/work-orders")) return { page: "bill_entry", api: false };
   if (is("/expense") || is("/expenses")) return { page: "expenses", api: false };
   if (is("/staff")) return { page: "staff", api: false };
-  if (is("/admin")) return { page: "admin", api: false };
+  if (is("/admin") || is("/api/admin")) return { page: "admin", api: pathname.startsWith("/api/") };
   if (is("/api/all-entries")) return { page: "all_entries", api: true };
   if (is("/api/entries") || is("/api/clients")) return { page: "calculator", api: true };
   if (is("/api/bill-entry") || is("/api/customers")) return { page: "bill_entry", api: true };
@@ -123,5 +123,7 @@ export const config = {
     "/api/expenses/:path*",
     "/api/staff",
     "/api/staff/:path*",
+    "/api/admin",
+    "/api/admin/:path*",
   ],
 };

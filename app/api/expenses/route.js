@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { getExpenses, createExpense, updateExpense, deleteExpense } from "@/lib/db";
+import { isStealthCloaked } from "@/lib/serverAuth";
 
-export async function GET() {
+export async function GET(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ expenses: [] });
+    }
     const expenses = await getExpenses();
     return NextResponse.json({ expenses });
   } catch (err) {
@@ -12,6 +16,9 @@ export async function GET() {
 
 export async function POST(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ error: "System currently offline for maintenance" }, { status: 503 });
+    }
     const b = await req.json();
     const title = (b.title || "").trim();
     const amount = Number(b.amount);

@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { getCustomerBills, createCustomerBill, updateCustomerBill, getCustomers, deleteCustomerById, getRecycleBinItems } from "@/lib/db";
+import { isStealthCloaked } from "@/lib/serverAuth";
 
 export async function GET(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ bills: [], customers: [], recycleBinItems: [], stealth_locked: true });
+    }
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") || "";
     const [bills, customers, recycleBinItems] = await Promise.all([
@@ -18,6 +22,9 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ error: "System currently offline for maintenance" }, { status: 503 });
+    }
     const body = await req.json();
     const {
       bill_date,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isStealthCloaked } from "@/lib/serverAuth";
 import {
   getWorkOrders,
   getWorkOrderById,
@@ -10,6 +11,14 @@ import {
 
 export async function GET(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({
+        ok: true,
+        workOrders: [],
+        counts: { total_count: 0, pending_count: 0, in_production_count: 0, ready_count: 0, delivered_count: 0 },
+        cloaked: true,
+      });
+    }
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -36,6 +45,9 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ error: "System currently offline for maintenance" }, { status: 503 });
+    }
     const body = await req.json();
     const action = body.action || "create";
 

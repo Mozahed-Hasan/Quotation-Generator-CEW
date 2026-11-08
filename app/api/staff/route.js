@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isStealthCloaked } from "@/lib/serverAuth";
 import {
   getStaffMonthData,
   saveStaffAttendanceEntry,
@@ -10,6 +11,9 @@ import {
 
 export async function GET(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ ok: true, profiles: [], records: [] });
+    }
     const { searchParams } = new URL(req.url);
     const now = new Date();
     const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -24,6 +28,9 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ error: "System currently offline for maintenance" }, { status: 503 });
+    }
     const body = await req.json();
     const action = body.action || "save_attendance";
 

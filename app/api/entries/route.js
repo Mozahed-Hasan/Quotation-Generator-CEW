@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { getEntries, createEntry, deleteClientEntries } from "@/lib/db";
+import { isStealthCloaked } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json([]);
+    }
     const rows = await getEntries();
     return NextResponse.json(rows);
   } catch (e) {
@@ -14,6 +18,9 @@ export async function GET() {
 
 export async function POST(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ error: "System currently offline for maintenance" }, { status: 503 });
+    }
     const b = await req.json();
     const amount = Number(b.amount);
     if (!b.client_name?.trim() || !(amount > 0) || !["bill", "payment"].includes(b.type)) {

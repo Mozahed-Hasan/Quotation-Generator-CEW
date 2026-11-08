@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readSession, SESSION_COOKIE, can } from "@/lib/auth";
+import { isStealthCloaked } from "@/lib/serverAuth";
 import {
   getAllSystemEntries,
   getUnifiedRecycleBin,
@@ -18,6 +19,9 @@ async function getAuth(req) {
 
 export async function GET(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json([]);
+    }
     const session = await getAuth(req);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
