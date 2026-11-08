@@ -1,6 +1,7 @@
 import "./globals.css";
 import { Suspense } from "react";
 import NavigationProgress from "./NavigationProgress";
+import SessionSecurityGuard from "./SessionSecurityGuard";
 
 export const metadata = {
   title: "Online Games | Portal",
@@ -49,6 +50,7 @@ export default function RootLayout({ children }) {
       <body className="font-sans text-slate-800 antialiased">
         <Suspense fallback={null}>
           <NavigationProgress />
+          <SessionSecurityGuard />
         </Suspense>
         {children}
       </body>

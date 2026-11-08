@@ -129,19 +129,30 @@ export default function RootDashboardPage() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [denied, setDenied] = useState(false);
+  const [logoutReason, setLogoutReason] = useState("");
 
   async function loadMe() {
     try {
       const r = await fetch("/api/auth/me", { cache: "no-store" });
       const d = await r.json();
-      setUser(d.user || null);
+      if (d.user) {
+        try {
+          sessionStorage.setItem("cew_session_active", "1");
+          sessionStorage.setItem("cew_last_active", String(Date.now()));
+        } catch {}
+        setUser(d.user);
+      } else {
+        setUser(null);
+      }
     } catch {
       setUser(null);
     }
   }
 
   useEffect(() => {
-    setDenied(new URLSearchParams(window.location.search).get("denied") === "1");
+    const params = new URLSearchParams(window.location.search);
+    setDenied(params.get("denied") === "1");
+    setLogoutReason(params.get("reason") || "");
     loadMe();
   }, []);
 
@@ -159,6 +170,11 @@ export default function RootDashboardPage() {
       if (!r.ok) {
         setErr(d.error || "Login failed");
       } else {
+        try {
+          sessionStorage.setItem("cew_session_active", "1");
+          sessionStorage.setItem("cew_last_active", String(Date.now()));
+        } catch {}
+        setLogoutReason("");
         setPassword("");
         await loadMe();
       }
@@ -170,9 +186,14 @@ export default function RootDashboardPage() {
   }
 
   async function handleLogout() {
+    try {
+      sessionStorage.removeItem("cew_session_active");
+      sessionStorage.removeItem("cew_last_active");
+    } catch {}
     await fetch("/api/auth/logout", { method: "POST" });
     setUser(null);
     setDenied(false);
+    setLogoutReason("");
   }
 
   if (user === undefined) {
@@ -230,6 +251,17 @@ export default function RootDashboardPage() {
               required
               autoComplete="current-password"
             />
+
+            {logoutReason === "idle" && (
+              <div style={{ background: "#fef3c7", border: "1px solid #fde68a", color: "#92400e", padding: "8px 12px", borderRadius: 8, fontSize: "0.82rem", fontWeight: 700, marginTop: 12, lineHeight: 1.4, textAlign: "left" }}>
+                Logged out due to 15 minutes of inactivity for data security.
+              </div>
+            )}
+            {logoutReason === "closed" && (
+              <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e40af", padding: "8px 12px", borderRadius: 8, fontSize: "0.82rem", fontWeight: 700, marginTop: 12, lineHeight: 1.4, textAlign: "left" }}>
+                Session ended because the tab or browser was closed. Please sign in again.
+              </div>
+            )}
 
             {err && <div className="login-error-badge">{err}</div>}
 
