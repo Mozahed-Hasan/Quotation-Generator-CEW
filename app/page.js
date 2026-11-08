@@ -48,6 +48,20 @@ const PAGES = [
     ),
   },
   {
+    key: "work_orders",
+    href: "/work-orders",
+    title: "Work Orders",
+    desc: "Factory orders, production tracking, specs and delivery slips.",
+    icon: (
+      <>
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+        <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+        <path d="M9 12h6" />
+        <path d="M9 16h6" />
+      </>
+    ),
+  },
+  {
     key: "expenses",
     href: "/expense",
     title: "Expense",
@@ -283,7 +297,7 @@ export default function RootDashboardPage() {
           {cards.map((p) => {
             const acts = isAdmin || p.key === "admin" ? null : user.permissions?.[p.key] || [];
             return (
-              <Link key={p.key} href={p.href} className="dash-card" id={`dash-${p.key}`}>
+              <Link key={p.key} href={p.href} prefetch={true} className="dash-card" id={`dash-${p.key}`}>
                 <div className="dash-icon"><Icon>{p.icon}</Icon></div>
                 <h2>{p.title}</h2>
                 <p>{p.desc}</p>

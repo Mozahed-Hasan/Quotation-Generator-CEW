@@ -8,12 +8,14 @@ function resolveTarget(pathname) {
   if (is("/quotation-generator")) return { page: "quotation", api: false };
   if (is("/purchase") || is("/bill-calculator")) return { page: "calculator", api: false };
   if (is("/sales") || is("/bill-entry")) return { page: "bill_entry", api: false };
+  if (is("/work-orders")) return { page: "bill_entry", api: false };
   if (is("/expense") || is("/expenses")) return { page: "expenses", api: false };
   if (is("/staff")) return { page: "staff", api: false };
   if (is("/admin")) return { page: "admin", api: false };
   if (is("/api/all-entries")) return { page: "all_entries", api: true };
   if (is("/api/entries") || is("/api/clients")) return { page: "calculator", api: true };
   if (is("/api/bill-entry")) return { page: "bill_entry", api: true };
+  if (is("/api/work-orders")) return { page: "bill_entry", api: true };
   if (is("/api/expenses")) return { page: "expenses", api: true };
   if (is("/api/staff")) return { page: "staff", api: true };
   return null;

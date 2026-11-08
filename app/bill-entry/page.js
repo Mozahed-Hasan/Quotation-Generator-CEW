@@ -306,6 +306,56 @@ export default function BillEntryPage() {
   const [prevEntryErr, setPrevEntryErr] = useState("");
   const [prevEntrySuccess, setPrevEntrySuccess] = useState("");
 
+  // Work Order Integration States
+  const [addToWorkOrder, setAddToWorkOrder] = useState(false);
+  const [woDetails, setWoDetails] = useState({
+    target_delivery_date: "",
+    site_location: "",
+    priority: "Normal",
+    production_notes: "",
+  });
+  const [woCreatingFromBill, setWoCreatingFromBill] = useState(false);
+
+  async function handleCreateWorkOrderFromBill(b) {
+    if (!window.confirm(`Create a Work Order for Invoice #${b.bill_no || b.id} (${b.customer_name})?`)) {
+      return;
+    }
+    setWoCreatingFromBill(true);
+    try {
+      const res = await fetch("/api/work-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          bill_id: b.id,
+          bill_no: b.bill_no,
+          order_date: b.bill_date,
+          customer_name: b.customer_name,
+          customer_mobile: b.customer_mobile,
+          customer_address: b.customer_address,
+          items: b.items || [],
+          total_amount: b.total_bill || 0,
+          advance_paid: b.client_payment || 0,
+          due_amount: b.due_advance || 0,
+          priority: "Normal",
+          status: "Pending",
+          production_notes: b.note || "",
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        alert(`Work Order #${data.work_order_no} created successfully! You can view it in the Work Orders page.`);
+      } else {
+        alert(data.error || "Failed to create work order");
+      }
+    } catch (err) {
+      console.error("Error creating work order from bill:", err);
+      alert("Network error while creating work order");
+    } finally {
+      setWoCreatingFromBill(false);
+    }
+  }
+
   // Close menus on outside click
   useEffect(() => {
     function handleClickOutside(e) {
@@ -705,9 +755,44 @@ export default function BillEntryPage() {
           }
         }
 
-        setSuccessMsg(`Bill #${form.bill_no || "saved"} recorded successfully!`);
+        if (addToWorkOrder) {
+          try {
+            await fetch("/api/work-orders", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "create",
+                bill_id: result.id,
+                bill_no: form.bill_no,
+                order_date: form.bill_date,
+                customer_name: form.customer_name,
+                customer_mobile: form.customer_mobile,
+                customer_address: form.customer_address,
+                items: form.items || [],
+                total_amount: totalBill,
+                advance_paid: payment,
+                due_amount: dueAdvance,
+                target_delivery_date: woDetails.target_delivery_date || null,
+                site_location: woDetails.site_location || "",
+                priority: woDetails.priority || "Normal",
+                production_notes: woDetails.production_notes || "",
+              }),
+            });
+          } catch (woErr) {
+            console.error("Error creating work order from bill submit:", woErr);
+          }
+        }
+
+        setSuccessMsg(`Bill #${form.bill_no || "saved"} recorded successfully!${addToWorkOrder ? " (Added to Work Order list)" : ""}`);
         // Reset form for next entry
         setForm(defaultForm());
+        setAddToWorkOrder(false);
+        setWoDetails({
+          target_delivery_date: "",
+          site_location: "",
+          priority: "Normal",
+          production_notes: "",
+        });
         await loadData();
       }
     } catch (error) {
@@ -3451,6 +3536,109 @@ export default function BillEntryPage() {
             </div>
           </div>
 
+          {/* Section 6: Work Order Forwarding */}
+          <div className="be-form-section" style={{ marginBottom: "20px" }}>
+            <div
+              style={{
+                background: addToWorkOrder ? "#f8fafc" : "#ffffff",
+                border: "1px solid var(--be-border, #e2e8f0)",
+                borderRadius: "10px",
+                padding: "16px 18px",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={addToWorkOrder}
+                    onChange={(e) => setAddToWorkOrder(e.target.checked)}
+                    style={{ width: 17, height: 17, cursor: "pointer" }}
+                  />
+                  <div>
+                    <span style={{ fontSize: "0.92rem", fontWeight: 700, color: "#0f172a" }}>
+                      Add to Work Order List
+                    </span>
+                    <p style={{ margin: "2px 0 0", fontSize: "0.78rem", color: "var(--be-text-muted, #64748b)" }}>
+                      Automatically forwards this order to the workshop for fabrication and delivery tracking.
+                    </p>
+                  </div>
+                </label>
+                {addToWorkOrder && (
+                  <span
+                    style={{
+                      background: "#eff6ff",
+                      color: "#1e40af",
+                      padding: "4px 10px",
+                      borderRadius: 14,
+                      fontSize: "0.76rem",
+                      fontWeight: 700,
+                      border: "1px solid #bfdbfe",
+                    }}
+                  >
+                    Work Order Enabled
+                  </span>
+                )}
+              </div>
+
+              {addToWorkOrder && (
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--be-border, #e2e8f0)" }}>
+                  <div className="be-grid-3" style={{ marginBottom: "12px" }}>
+                    <div className="be-field-group">
+                      <label htmlFor="wo-delivery-date">Target Delivery Date</label>
+                      <input
+                        id="wo-delivery-date"
+                        type="date"
+                        className="be-input"
+                        value={woDetails.target_delivery_date}
+                        onChange={(e) => setWoDetails({ ...woDetails, target_delivery_date: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="be-field-group">
+                      <label htmlFor="wo-site-location">Site / Delivery Location</label>
+                      <input
+                        id="wo-site-location"
+                        type="text"
+                        className="be-input"
+                        placeholder="e.g. Gazipur Site, 3rd Floor"
+                        value={woDetails.site_location}
+                        onChange={(e) => setWoDetails({ ...woDetails, site_location: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="be-field-group">
+                      <label htmlFor="wo-priority">Priority</label>
+                      <select
+                        id="wo-priority"
+                        className="be-input"
+                        value={woDetails.priority}
+                        onChange={(e) => setWoDetails({ ...woDetails, priority: e.target.value })}
+                      >
+                        <option value="Normal">Normal</option>
+                        <option value="High">High</option>
+                        <option value="Urgent">Urgent</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="be-field-group">
+                    <label htmlFor="wo-production-notes">Production &amp; Fabrication Instructions</label>
+                    <textarea
+                      id="wo-production-notes"
+                      className="be-input"
+                      rows={2}
+                      placeholder="e.g. 0.40mm Sheet, Blue, 10ft cut with double bending"
+                      value={woDetails.production_notes}
+                      onChange={(e) => setWoDetails({ ...woDetails, production_notes: e.target.value })}
+                      style={{ resize: "vertical", fontSize: "0.85rem" }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Form Actions */}
           <div className="be-actions-row">
             <button type="submit" className="be-btn be-btn-primary" disabled={busy}>
@@ -4417,6 +4605,36 @@ export default function BillEntryPage() {
                       ? `Adv: ৳ ${fmt(Math.abs(rBal))}`
                       : "Fully Settled"}
                   </div>
+
+                  {!isEditingModal && (
+                    <button
+                      type="button"
+                      onClick={() => handleCreateWorkOrderFromBill(b)}
+                      disabled={woCreatingFromBill}
+                      style={{
+                        background: "rgba(245, 158, 11, 0.25)",
+                        border: "1px solid rgba(245, 158, 11, 0.45)",
+                        color: "#fef3c7",
+                        borderRadius: "8px",
+                        padding: "6px 12px",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        fontWeight: 700,
+                        fontSize: "0.78rem",
+                      }}
+                      title="Send this order to Work Orders list for factory production"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                        <path d="M9 12h6" />
+                        <path d="M9 16h6" />
+                      </svg>
+                      <span>+ Work Order</span>
+                    </button>
+                  )}
 
                   {!isEditingModal && (
                     <button
