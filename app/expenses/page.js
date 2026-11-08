@@ -634,7 +634,13 @@ export default function ExpensesPage() {
   }
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "DELETE" });
+    try {
+      sessionStorage.removeItem("cew_session_active");
+      sessionStorage.removeItem("cew_last_active");
+    } catch {}
+    try {
+      await fetch("/api/auth/logout", { method: "DELETE" });
+    } catch {}
     router.replace("/");
   }
 

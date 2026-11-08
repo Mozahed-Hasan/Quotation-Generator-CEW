@@ -132,16 +132,31 @@ export default function RootDashboardPage() {
   const [logoutReason, setLogoutReason] = useState("");
 
   async function loadMe() {
+    // Tab-level security: If this tab does not have an active session in sessionStorage,
+    // it means the user closed the previous tab or opened a brand-new tab/window.
+    // For strict confidentiality, do NOT auto-login from lingering server cookies.
+    const isTabActive = typeof window !== "undefined" && sessionStorage.getItem("cew_session_active");
+    if (!isTabActive) {
+      try {
+        await fetch("/api/auth/logout", { method: "POST" });
+      } catch {}
+      setUser(null);
+      return;
+    }
+
     try {
       const r = await fetch("/api/auth/me", { cache: "no-store" });
       const d = await r.json();
       if (d.user) {
         try {
-          sessionStorage.setItem("cew_session_active", "1");
           sessionStorage.setItem("cew_last_active", String(Date.now()));
         } catch {}
         setUser(d.user);
       } else {
+        try {
+          sessionStorage.removeItem("cew_session_active");
+          sessionStorage.removeItem("cew_last_active");
+        } catch {}
         setUser(null);
       }
     } catch {

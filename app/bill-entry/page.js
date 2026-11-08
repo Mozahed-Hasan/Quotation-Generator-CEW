@@ -1695,6 +1695,10 @@ export default function BillEntryPage() {
   // Logout
   async function handleLogout() {
     try {
+      sessionStorage.removeItem("cew_session_active");
+      sessionStorage.removeItem("cew_last_active");
+    } catch {}
+    try {
       await fetch("/api/auth/logout", { method: "DELETE" });
     } catch {}
     router.replace("/");

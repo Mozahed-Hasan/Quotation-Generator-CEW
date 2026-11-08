@@ -129,7 +129,13 @@ export default function AdminPanelPage() {
   }, []);
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      sessionStorage.removeItem("cew_session_active");
+      sessionStorage.removeItem("cew_last_active");
+    } catch {}
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
     router.replace("/");
   }
 
