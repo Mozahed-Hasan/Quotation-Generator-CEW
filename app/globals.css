@@ -200,15 +200,55 @@ input[type="number"] {
   font-weight: 500;
 }
 
+@media (max-width: 768px) {
+  .be-header {
+    padding: 12px 14px;
+    gap: 10px;
+    margin-bottom: 12px;
+    border-radius: 12px;
+  }
+  .be-title-box h1 {
+    font-size: 1.12rem;
+  }
+  .be-title-box p {
+    font-size: 0.75rem;
+  }
+  .be-nav-actions {
+    width: 100%;
+    gap: 8px;
+  }
+  .be-nav-actions .be-nav-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+  /* Prevent iOS Safari auto-zoom on form focus across all pages */
+  input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 @media (max-width: 640px) {
   .cew-top-page-nav {
     width: 100%;
-    justify-content: stretch;
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    justify-content: flex-start;
+  }
+  .cew-top-page-nav::-webkit-scrollbar {
+    display: none;
   }
   .cew-top-nav-item {
-    flex: 1;
+    flex: 0 0 auto;
     justify-content: center;
-    padding: 6px 8px;
+    padding: 6px 10px;
     font-size: 0.78rem;
   }
 }

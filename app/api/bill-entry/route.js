@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCustomerBills, createCustomerBill, updateCustomerBill, getCustomers, deleteCustomerById, getRecycleBinItems } from "@/lib/db";
-import { isStealthCloaked } from "@/lib/serverAuth";
+import { isStealthCloaked, getAuthUser } from "@/lib/serverAuth";
+import { validateAndComputeBillTotals } from "@/lib/billEntryValidation";
 
 export async function GET(req) {
   try {
@@ -52,23 +53,31 @@ export async function POST(req) {
       return NextResponse.json({ error: "Customer Mobile number is required" }, { status: 400 });
     }
 
-    const saved = await createCustomerBill({
+    const computed = validateAndComputeBillTotals(body);
+    if (computed.error) {
+      return NextResponse.json({ error: computed.error }, { status: 400 });
+    }
+
+    const actor = await getAuthUser(req);
+    const billPayload = {
       bill_date,
       bill_no,
       customer_name: customer_name.trim(),
       customer_address: customer_address ? customer_address.trim() : "",
       customer_mobile: customer_mobile ? customer_mobile.trim() : "",
       customer_id: customer_id ? customer_id.trim() : "",
-      items: Array.isArray(items) ? items : [],
-      labour_charge: Math.round((Number(labour_charge) || 0) * 100) / 100,
-      transport_cost: Math.round((Number(transport_cost) || 0) * 100) / 100,
-      discount: Math.round((Number(discount) || 0) * 100) / 100,
-      total_bill: Math.round((Number(total_bill) || 0) * 100) / 100,
-      client_payment: Math.round((Number(client_payment) || 0) * 100) / 100,
-      due_advance: Math.abs(Number(due_advance) || 0) < 0.005 ? 0 : Math.round((Number(due_advance) || 0) * 100) / 100,
+      items: computed.items,
+      labour_charge: computed.labour_charge,
+      transport_cost: computed.transport_cost,
+      discount: computed.discount,
+      total_bill: computed.total_bill,
+      client_payment: computed.client_payment,
+      due_advance: computed.due_advance,
       note: note ? note.trim() : "",
+      created_by: actor?.username || "Admin",
       is_opening_balance: is_opening_balance === true,
-    });
+    };
+    const saved = await createCustomerBill(billPayload);
 
     return NextResponse.json({ ok: true, id: saved.id });
   } catch (err) {
@@ -78,13 +87,20 @@ export async function POST(req) {
 
 export async function DELETE(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ error: "System currently offline for maintenance" }, { status: 503 });
+    }
     const { searchParams } = new URL(req.url);
     const customerId = searchParams.get("customer_id");
     const permanent = searchParams.get("permanent") === "true";
     if (!customerId) {
       return NextResponse.json({ error: "Customer ID is required" }, { status: 400 });
     }
-    await deleteCustomerById(customerId, permanent);
+    const actor = await getAuthUser(req);
+    if (permanent && (!actor || actor.role !== "admin")) {
+      return NextResponse.json({ error: "Only administrators can permanently delete records" }, { status: 403 });
+    }
+    await deleteCustomerById(customerId, permanent, actor?.username || "Admin");
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -93,6 +109,9 @@ export async function DELETE(req) {
 
 export async function PUT(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ error: "System currently offline for maintenance" }, { status: 503 });
+    }
     const body = await req.json();
     const { id, ...data } = body;
     if (!id) {
@@ -105,23 +124,30 @@ export async function PUT(req) {
       return NextResponse.json({ error: "Customer Mobile number is required" }, { status: 400 });
     }
 
-    await updateCustomerBill(id, {
+    const computed = validateAndComputeBillTotals(data);
+    if (computed.error) {
+      return NextResponse.json({ error: computed.error }, { status: 400 });
+    }
+
+    const actor = await getAuthUser(req);
+    const updatedPayload = {
       bill_date: data.bill_date,
       bill_no: data.bill_no,
       customer_name: data.customer_name.trim(),
       customer_address: data.customer_address ? data.customer_address.trim() : "",
       customer_mobile: data.customer_mobile ? data.customer_mobile.trim() : "",
       customer_id: data.customer_id ? data.customer_id.trim() : "",
-      items: Array.isArray(data.items) ? data.items : [],
-      labour_charge: Math.round((Number(data.labour_charge) || 0) * 100) / 100,
-      transport_cost: Math.round((Number(data.transport_cost) || 0) * 100) / 100,
-      discount: Math.round((Number(data.discount) || 0) * 100) / 100,
-      total_bill: Math.round((Number(data.total_bill) || 0) * 100) / 100,
-      client_payment: Math.round((Number(data.client_payment) || 0) * 100) / 100,
-      due_advance: Math.abs(Number(data.due_advance) || 0) < 0.005 ? 0 : Math.round((Number(data.due_advance) || 0) * 100) / 100,
+      items: computed.items,
+      labour_charge: computed.labour_charge,
+      transport_cost: computed.transport_cost,
+      discount: computed.discount,
+      total_bill: computed.total_bill,
+      client_payment: computed.client_payment,
+      due_advance: computed.due_advance,
       note: data.note ? data.note.trim() : "",
       is_opening_balance: data.is_opening_balance === true,
-    });
+    };
+    await updateCustomerBill(id, updatedPayload);
 
     return NextResponse.json({ ok: true });
   } catch (err) {

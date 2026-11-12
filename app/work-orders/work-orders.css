@@ -369,3 +369,92 @@
     display: none !important;
   }
 }
+
+/* Work Orders Mobile Preview Styles (<= 768px, PC untouched) */
+@media (max-width: 768px) {
+  .wo-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .wo-stat-card {
+    padding: 12px;
+    gap: 4px;
+  }
+
+  .wo-stat-val {
+    font-size: 1.35rem;
+  }
+
+  .wo-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .wo-tabs-group {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    box-sizing: border-box;
+  }
+
+  .wo-tabs-group::-webkit-scrollbar {
+    display: none;
+  }
+
+  .wo-tab-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 6px 11px;
+    font-size: 0.78rem;
+  }
+
+  .wo-controls-group {
+    width: 100%;
+    gap: 8px !important;
+  }
+
+  .wo-search-box {
+    width: 100% !important;
+    flex: 1 1 100%;
+  }
+
+  .wo-controls-group .be-input,
+  .wo-controls-group select.be-input {
+    width: 100% !important;
+    font-size: 16px !important;
+  }
+
+  .wo-controls-group .wo-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 38px;
+  }
+
+  .wo-table-wrap {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .wo-modal-overlay {
+    padding: 8px;
+  }
+
+  .wo-modal-card {
+    max-width: 100%;
+    max-height: 94vh;
+  }
+
+  .wo-modal-header,
+  .wo-modal-body,
+  .wo-modal-footer {
+    padding: 12px 14px;
+  }
+}

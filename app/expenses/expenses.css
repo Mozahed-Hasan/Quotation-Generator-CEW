@@ -149,6 +149,27 @@
   border-top: 1px solid #dcfce7;
 }
 
+.be-ledger-table-wrap.be-expense-desktop-table {
+  max-height: 68vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.be-ledger-table-wrap.be-expense-desktop-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: #f8fafc;
+  box-shadow: inset 0 -1px 0 #e2e8f0;
+}
+
+.be-ledger-table-wrap.be-expense-desktop-table tfoot {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.08);
+}
+
 .ex-filters {
   display: flex;
   flex-wrap: wrap;
@@ -167,6 +188,25 @@
   }
   .ex-range-label {
     min-width: 0;
+    flex: 1;
+    font-size: 0.84rem;
+  }
+  .ex-nav-group {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    max-width: 100%;
+    gap: 6px;
+  }
+  .ex-nav-group .be-input {
+    flex: 1 1 130px;
+    min-width: 0;
+    font-size: 16px;
+  }
+  .ex-filters .be-input {
+    max-width: 100%;
+    width: 100%;
+    font-size: 16px;
   }
 }
 
@@ -868,6 +908,9 @@
   .ex-donut-grid {
     grid-template-columns: 1fr;
     justify-items: center;
+  }
+  .be-ledger-table-wrap.be-expense-desktop-table {
+    display: none;
   }
 }
 

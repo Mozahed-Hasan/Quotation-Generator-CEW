@@ -3,6 +3,9 @@ import { useEffect, useState, useMemo, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import * as XLSX from "xlsx";
+import { exportReportToPdf } from "@/lib/pdfExport";
+import { batchTranslateTable, toBengaliDigits, toBengaliCurrency } from "@/lib/translator";
+import ExportLangModal from "@/lib/ExportLangModal";
 import {
   HomeIcon,
   DownloadIcon,
@@ -1673,6 +1676,83 @@ export default function AllEntriesAuditPage() {
     setSelectedUids(next);
   }
 
+  const [pdfModal, setPdfModal] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState(0);
+
+  async function executeExportPdf(lang = "en") {
+    if (filteredEntries.length === 0) {
+      alert("No entries to export with current filters.");
+      setPdfModal(false);
+      return;
+    }
+    const isBn = lang === "bn";
+    setPdfBusy(true);
+    setPdfProgress(15);
+    try {
+      const headers = isBn
+        ? ["ক্রমিক", "তারিখ", "মডিউল", "পার্টি / প্রাপক", "বিল নং", "পরিমাণ", "পরিশোধ", "বাকি"]
+        : ["SL", "Date", "Module", "Party / Recipient", "Bill No", "Amount", "Payment", "Due"];
+
+      let tableRows = filteredEntries.map((e, idx) => [
+        isBn ? toBengaliDigits(idx + 1) : idx + 1,
+        isBn ? toBengaliDigits(e.date) : e.date,
+        e.sourceLabel,
+        e.party,
+        e.billNo || "—",
+        isBn ? toBengaliCurrency(e.amount) : Number(e.amount || 0).toFixed(2),
+        isBn ? toBengaliCurrency(e.payment) : Number(e.payment || 0).toFixed(2),
+        isBn ? toBengaliCurrency(e.due) : Number(e.due || 0).toFixed(2),
+      ]);
+
+      const totAmount = filteredEntries.reduce((s, r) => s + Number(r.amount || 0), 0);
+      const totPay = filteredEntries.reduce((s, r) => s + Number(r.payment || 0), 0);
+      const totDue = filteredEntries.reduce((s, r) => s + Number(r.due || 0), 0);
+      const summaryRows = [
+        [
+          isBn ? "সর্বমোট" : "TOTAL",
+          "", "", "", "",
+          isBn ? toBengaliCurrency(totAmount) : totAmount.toFixed(2),
+          isBn ? toBengaliCurrency(totPay) : totPay.toFixed(2),
+          isBn ? toBengaliCurrency(totDue) : totDue.toFixed(2),
+        ],
+      ];
+
+      if (isBn) {
+        tableRows = await batchTranslateTable(tableRows, (pct) => setPdfProgress(Math.round(15 + pct * 0.75)));
+      }
+      setPdfBusy(false);
+      setPdfProgress(0);
+      setPdfModal(false);
+      await new Promise((r) => setTimeout(r, 30));
+
+      const langTag = isBn ? "_Bangla" : "";
+      await exportReportToPdf({
+        title: isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS",
+        subtitle: isBn ? `সকল এন্ট্রি মাস্টার রিপোর্ট (${toBengaliDigits(today())})` : `All System Entries Audit Report (${today()})`,
+        filename: `CEW_Master_Entries_Audit_${today().replace(/-/g, "")}${langTag}.pdf`,
+        sheets: [
+          {
+            sheetTitle: isBn ? "সকল এন্ট্রি রিপোর্ট" : "Master Audit Entries",
+            headers,
+            rows: tableRows,
+            summaryRows,
+            rightAlignCols: [0, 5, 6, 7],
+          },
+        ],
+        lang,
+        orientation: "landscape",
+      });
+    } catch (err) {
+      console.error("All entries PDF export error:", err);
+      alert("Failed to export Audit PDF.");
+    } finally {
+      setPdfBusy(false);
+      setPdfProgress(0);
+      setPdfModal(false);
+    }
+  }
+
   // Export to Excel
   function handleExportExcel() {
     if (filteredEntries.length === 0) {
@@ -1791,6 +1871,14 @@ export default function AllEntriesAuditPage() {
             style={{ background: "#f0fdf4", color: "#166534", borderColor: "#bbf7d0" }}
           >
             <DownloadIcon size={14} /> Export Audit Excel
+          </button>
+          <button
+            type="button"
+            className="be-nav-btn"
+            onClick={() => setPdfModal(true)}
+            style={{ background: "#1e293b", color: "#ffffff", borderColor: "#1e293b" }}
+          >
+            <DownloadIcon size={14} /> Export Audit PDF
           </button>
           <Link href="/" className="be-nav-btn">
             <HomeIcon size={14} /> Dashboard
@@ -5496,6 +5584,16 @@ export default function AllEntriesAuditPage() {
           </div>
         </div>
       )}
+      <ExportLangModal
+        isOpen={pdfModal}
+        title="Download Audit Entries PDF"
+        subtitle={`Filtered Records: ${filteredEntries.length}`}
+        format="pdf"
+        busy={pdfBusy}
+        progress={pdfProgress}
+        onClose={() => setPdfModal(false)}
+        onSelect={executeExportPdf}
+      />
     </main>
   );
 }

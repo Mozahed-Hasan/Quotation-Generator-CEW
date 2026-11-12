@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import TopPageNav from "@/lib/TopPageNav";
 import * as XLSX from "xlsx-js-style";
+import { exportReportToPdf, aoaToPdfSheet } from "@/lib/pdfExport";
 import {
   batchTranslateTable,
   toBengaliDigits,
@@ -202,8 +203,8 @@ export default function StaffAttendancePage() {
   // View filter
   const [cardFilter, setCardFilter] = useState("active"); // "active" | "all" | "selected"
 
-  // Excel Language Modal State
-  const [excelLangModal, setExcelLangModal] = useState(false);
+  // Excel / PDF Language Modal State
+  const [excelLangModal, setExcelLangModal] = useState({ isOpen: false, format: "xlsx" });
   const [translatingExcel, setTranslatingExcel] = useState(false);
   const [translatingProgress, setTranslatingProgress] = useState(0);
 
@@ -761,10 +762,11 @@ export default function StaffAttendancePage() {
     return staffSummaries.filter((s) => s.staffName.toLowerCase().includes(q));
   }, [staffSummaries, dirSearch]);
 
-  // Execute Excel Download in English or Bangla
-  async function executeExportExcel(lang = "en") {
+  // Execute Excel / PDF Download in English or Bangla
+  async function executeExportExcel(lang = "en", format = excelLangModal.format || "xlsx") {
     const isBn = lang === "bn";
-    if (isBn) {
+    const isPdf = format === "pdf";
+    if (isBn || isPdf) {
       setTranslatingExcel(true);
       setTranslatingProgress(10);
     }
@@ -940,13 +942,60 @@ export default function StaffAttendancePage() {
       );
 
       const langSuffix = isBn ? "_Bangla" : "";
-      XLSX.writeFile(wb, `Staff_Attendance_Salary_${monthKey}${langSuffix}.xlsx`);
+      setTranslatingExcel(false);
+      setTranslatingProgress(0);
+      setExcelLangModal({ isOpen: false, format: "xlsx" });
+      await new Promise((r) => setTimeout(r, 30));
+
+      if (isPdf) {
+        const pdfSummaryHeaders = isBn
+          ? ["নাম", "মূল বেতন", "উপস্থিতি", "অতিরিক্ত", "মোট কাজ", "প্রাপ্য বেতন", "টাকা নেওয়া", "পূর্বের পাওনা", "অবশিষ্ট টাকা"]
+          : ["Name", "Basic Salary", "Attendance", "Overtime", "Total Work", "Earned Salary", "Cash Taken", "Previous Due", "Net Payable"];
+        let pdfSummaryRows = visibleCards.map((item) => [
+          item.staffName,
+          item.monthlySalary > 0 ? fmtVal(item.monthlySalary, 2) : "-",
+          fmtVal(item.totalAttendance, 2),
+          item.overtimeDays > 0 ? fmtVal(item.overtimeDays, 2) : "-",
+          fmtVal(item.totalWorkDays, 2),
+          item.earnedSalary > 0 ? fmtVal(item.earnedSalary, 2) : "-",
+          item.totalCashTaken > 0 ? fmtVal(item.totalCashTaken, 2) : "-",
+          formatSlipAccounting(item.prevBalance, isBn, false),
+          formatSlipAccounting(item.remainingPayable, isBn, true),
+        ]);
+        if (isBn) {
+          pdfSummaryRows = await batchTranslateTable(pdfSummaryRows, () => {});
+        }
+        await exportReportToPdf({
+          title: isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS",
+          subtitle: isBn ? `স্টাফ বেতন ও হাজিরা রিপোর্ট (${monthLabelEn})` : `Staff Attendance & Salary Report (${monthLabelEn})`,
+          filename: `Staff_Attendance_Salary_${monthKey}${langSuffix}.pdf`,
+          sheets: [
+            {
+              sheetTitle: isBn ? "বেতন সারসংক্ষেপ (Slips)" : "Salary Slips Summary",
+              headers: pdfSummaryHeaders,
+              rows: pdfSummaryRows,
+              summaryRows: [],
+              rightAlignCols: [1, 2, 3, 4, 5, 6, 7, 8],
+            },
+            aoaToPdfSheet(
+              gridRows,
+              isBn ? "মাসিক হাজিরা শিট" : "Monthly Attendance Sheet",
+              [1, 2, 3, 4, 5, 6]
+            ),
+          ],
+          lang,
+          orientation: "landscape",
+        });
+      } else {
+        XLSX.writeFile(wb, `Staff_Attendance_Salary_${monthKey}${langSuffix}.xlsx`);
+      }
     } catch (err) {
-      console.error("Failed to export Staff Excel:", err);
-      alert("Failed to export Excel file.");
+      console.error("Failed to export Staff report:", err);
+      alert(`Failed to export ${isPdf ? "PDF" : "Excel"} file.`);
     } finally {
       setTranslatingExcel(false);
-      setExcelLangModal(false);
+      setTranslatingProgress(0);
+      setExcelLangModal({ isOpen: false, format: "xlsx" });
     }
   }
 
@@ -1828,11 +1877,20 @@ export default function StaffAttendancePage() {
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button
               type="button"
-              onClick={() => setExcelLangModal(true)}
+              onClick={() => setExcelLangModal({ isOpen: true, format: "xlsx" })}
               className="st-action-btn emerald"
             >
               <DownloadIcon size={15} />
               <span>Download Excel (.xlsx)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setExcelLangModal({ isOpen: true, format: "pdf" })}
+              className="st-action-btn"
+              style={{ background: "#1e293b", color: "#fff", borderColor: "#1e293b" }}
+            >
+              <DownloadIcon size={15} />
+              <span>Download PDF (.pdf)</span>
             </button>
             <button
               type="button"
@@ -2194,12 +2252,12 @@ export default function StaffAttendancePage() {
         </div>
       )}
 
-      {/* Excel Language Selection Modal — Identical to Expense / Sales / Purchase pages */}
-      {excelLangModal && (
+      {/* Excel / PDF Language Selection Modal — Identical to Expense / Sales / Purchase pages */}
+      {excelLangModal.isOpen && (
         <div
           className="excel-lang-overlay"
           onClick={() => {
-            if (!translatingExcel) setExcelLangModal(false);
+            if (!translatingExcel) setExcelLangModal({ isOpen: false, format: "xlsx" });
           }}
         >
           <div className="excel-lang-card" onClick={(e) => e.stopPropagation()}>
@@ -2257,7 +2315,7 @@ export default function StaffAttendancePage() {
               {!translatingExcel && (
                 <button
                   type="button"
-                  onClick={() => setExcelLangModal(false)}
+                  onClick={() => setExcelLangModal({ isOpen: false, format: "xlsx" })}
                   style={{
                     background: "transparent",
                     border: "none",
@@ -2296,14 +2354,14 @@ export default function StaffAttendancePage() {
             ) : (
               <>
                 <p style={{ fontSize: "0.85rem", color: "#475569", margin: "10px 0 16px" }}>
-                  Choose your preferred language format for this Excel (.xlsx) workbook export:
+                  Choose your preferred language format for this {excelLangModal.format === "pdf" ? "PDF (.pdf) document" : "Excel (.xlsx) workbook"} export:
                 </p>
 
                 <div className="excel-lang-options">
                   <button
                     type="button"
                     className="excel-lang-btn bn"
-                    onClick={() => executeExportExcel("bn")}
+                    onClick={() => executeExportExcel("bn", excelLangModal.format || "xlsx")}
                   >
                     <span style={{ fontSize: "1.3rem", marginBottom: 4 }}>🇧🇩</span>
                     <strong style={{ fontSize: "0.95rem", color: "#1e3a8a" }}>Bangla</strong>
@@ -2311,14 +2369,14 @@ export default function StaffAttendancePage() {
                       className="excel-lang-badge"
                       style={{ background: "#dbeafe", color: "#1e40af" }}
                     >
-                      বাংলা এক্সেল শিট
+                      {excelLangModal.format === "pdf" ? "বাংলা পিডিএফ" : "বাংলা এক্সেল শিট"}
                     </span>
                   </button>
 
                   <button
                     type="button"
                     className="excel-lang-btn"
-                    onClick={() => executeExportExcel("en")}
+                    onClick={() => executeExportExcel("en", excelLangModal.format || "xlsx")}
                   >
                     <span style={{ fontSize: "1.3rem", marginBottom: 4 }}>🇬🇧</span>
                     <strong style={{ fontSize: "0.95rem", color: "#0f172a" }}>English</strong>

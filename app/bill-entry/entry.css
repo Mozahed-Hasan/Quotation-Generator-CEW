@@ -846,6 +846,34 @@
   vertical-align: middle;
 }
 
+.be-ledger-table-wrap.be-sales-desktop-table {
+  max-height: 68vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.be-ledger-table-wrap.be-sales-desktop-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  box-shadow: inset 0 -1px 0 var(--be-border);
+}
+
+.be-ledger-table-wrap.be-sales-desktop-table tfoot {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.08);
+}
+
+.be-ledger-table tfoot tr.be-cash-in-hand-row td {
+  background: #ecfdf5 !important;
+  border-top: 1px solid #a7f3d0;
+  border-bottom: none;
+  padding: 10px 8px;
+  color: #065f46;
+}
+
 /* Interactive Table Rows for Order Details */
 .be-row-interactive {
   cursor: pointer;
@@ -2188,6 +2216,636 @@
   padding: 12px;
   margin-top: 10px;
   font-size: 0.82rem;
+}
+
+/* Mobile Invoice Card List (hidden on PC/desktop) */
+.be-mobile-invoices-list,
+.be-mobile-cust-orders-list,
+.be-mobile-only-back {
+  display: none;
+}
+
+/* Sales Page Mobile Preview Polish (<= 768px, PC untouched) */
+@media (max-width: 768px) {
+  .be-wrapper {
+    padding: 10px 10px 36px;
+  }
+
+  .be-header {
+    padding: 12px 14px;
+    gap: 10px;
+    margin-bottom: 12px;
+    border-radius: 12px;
+  }
+
+  .be-title-box h1 {
+    font-size: 1.12rem;
+  }
+
+  .be-title-box p {
+    font-size: 0.75rem;
+  }
+
+  .be-nav-actions {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .be-nav-actions .be-nav-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .ex-kpi-filter-bar {
+    padding: 10px 12px;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .ex-period-bar {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .ex-range-label {
+    min-width: 0;
+    flex: 1;
+    font-size: 0.82rem;
+  }
+
+  .be-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .be-stat-card {
+    padding: 11px 12px;
+    border-radius: 10px;
+  }
+
+  .be-stat-card .label {
+    font-size: 0.68rem;
+  }
+
+  .be-stat-card .val {
+    font-size: 1.12rem;
+  }
+
+  .be-card {
+    padding: 14px 12px;
+    border-radius: 14px;
+    margin-bottom: 16px;
+  }
+
+  .be-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .be-card-title {
+    font-size: 1rem;
+  }
+
+  .be-toolbar-actions {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .be-input,
+  .be-select,
+  input.be-input,
+  select.be-select,
+  textarea.be-input {
+    font-size: 16px; /* Prevents iOS Safari auto-zoom on focus */
+  }
+
+  .be-prev-entry-card {
+    padding: 14px 12px;
+  }
+
+  .be-actions-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .be-actions-row .be-btn {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  /* Switch Recorded Invoices Table (Sales only) to Mobile Cards */
+  .be-ledger-table-wrap.be-sales-desktop-table {
+    display: none;
+  }
+
+  .be-mobile-invoices-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .be-mobile-inv-empty {
+    text-align: center;
+    padding: 24px 14px;
+    color: var(--be-text-muted);
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    font-size: 0.85rem;
+  }
+
+  .be-mobile-inv-summary {
+    background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    padding: 12px;
+  }
+
+  .be-mobile-inv-summary-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: #1e293b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 8px;
+  }
+
+  .be-mobile-inv-count {
+    background: #dbeafe;
+    color: #1d4ed8;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 0.72rem;
+  }
+
+  .be-mobile-inv-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .be-mobile-inv-summary-grid > div {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 7px 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .be-mobile-inv-summary-grid small {
+    font-size: 0.68rem;
+    color: #64748b;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .be-mobile-inv-summary-grid strong {
+    font-size: 0.86rem;
+    color: #0f172a;
+    font-weight: 800;
+  }
+
+  .be-mobile-inv-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.1s ease;
+  }
+
+  .be-mobile-inv-card:active {
+    transform: scale(0.99);
+    border-color: #93c5fd;
+  }
+
+  .be-mobile-inv-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .be-mobile-inv-id {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .be-mobile-inv-sl {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 6px;
+  }
+
+  .be-mobile-inv-billno {
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: #0f172a;
+  }
+
+  .be-mobile-inv-opening {
+    font-size: 0.65rem;
+    font-weight: 700;
+    background: #f0f9ff;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  .be-mobile-inv-date {
+    font-size: 0.76rem;
+    color: #64748b;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .be-mobile-inv-customer {
+    margin-bottom: 10px;
+  }
+
+  .be-mobile-inv-cname {
+    font-size: 0.94rem;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.3;
+  }
+
+  .be-mobile-inv-cmeta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-top: 2px;
+  }
+
+  .be-mobile-inv-cid {
+    font-family: monospace;
+    font-weight: 700;
+    color: #2563eb;
+  }
+
+  .be-mobile-inv-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    padding: 8px 10px;
+  }
+
+  .be-mobile-inv-metrics > div {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .be-mobile-inv-metrics small {
+    font-size: 0.66rem;
+    color: #64748b;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .be-mobile-inv-metrics strong {
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: #0f172a;
+  }
+
+  .be-mobile-inv-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 9px;
+    padding-top: 8px;
+    border-top: 1px dashed #e2e8f0;
+  }
+
+  .be-mobile-inv-expand-btn {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+    font-size: 0.74rem;
+    font-weight: 700;
+    padding: 6px 11px;
+    min-height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .be-mobile-inv-tap {
+    font-size: 0.73rem;
+    font-weight: 700;
+    color: #2563eb;
+  }
+
+  .be-mobile-inv-expanded {
+    margin-top: 9px;
+    padding: 9px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+  }
+
+  .be-mobile-inv-items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .be-mobile-inv-item-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 0.76rem;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .be-mobile-inv-item-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .be-mobile-inv-item-row > div {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .be-mobile-inv-item-row small {
+    color: #64748b;
+    font-size: 0.71rem;
+  }
+
+  .be-mobile-inv-item-row > span {
+    font-weight: 800;
+    color: #0f172a;
+    white-space: nowrap;
+  }
+
+  .be-mobile-inv-note {
+    margin-top: 7px;
+    font-size: 0.75rem;
+    color: #475569;
+    font-style: italic;
+  }
+
+  /* Modals on Phone */
+  .be-modal-overlay,
+  .cust-merge-modal-overlay {
+    padding: 8px;
+  }
+
+  .be-modal-box,
+  .cust-merge-modal-card {
+    max-width: 100%;
+    max-height: 94vh;
+    border-radius: 14px;
+  }
+
+  .be-modal-header,
+  .cust-merge-modal-header {
+    padding: 12px 14px;
+  }
+
+  .be-modal-body,
+  .cust-merge-modal-body {
+    padding: 12px 14px;
+  }
+
+  .cust-merge-modal-footer {
+    padding: 10px 14px;
+    flex-wrap: wrap;
+  }
+
+  /* Sticky Bottom Summary Bar for Mobile Invoices */
+  .be-mobile-inv-summary-sticky {
+    position: sticky;
+    bottom: 8px;
+    z-index: 25;
+    padding: 8px 10px !important;
+    box-shadow: 0 -4px 18px rgba(15, 23, 42, 0.14), 0 4px 12px rgba(15, 23, 42, 0.08);
+    border-color: #93c5fd;
+  }
+
+  .be-mobile-inv-summary-sticky .be-mobile-inv-summary-top {
+    margin-bottom: 6px;
+    font-size: 0.72rem;
+  }
+
+  .be-mobile-inv-summary-sticky.collapsed .be-mobile-inv-summary-top {
+    margin-bottom: 0;
+  }
+
+  .be-mobile-inv-summary-sticky .be-mobile-inv-summary-grid {
+    gap: 5px;
+  }
+
+  .be-mobile-inv-summary-sticky .be-mobile-inv-summary-grid > div {
+    padding: 5px 6px;
+  }
+
+  .be-mobile-inv-summary-sticky .be-mobile-inv-summary-grid small {
+    font-size: 0.62rem;
+  }
+
+  .be-mobile-inv-summary-sticky .be-mobile-inv-summary-grid strong {
+    font-size: 0.78rem;
+  }
+
+  .be-mobile-summary-toggle-btn {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    min-height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .be-duration-btn {
+    min-height: 36px;
+  }
+
+  .be-mobile-load-more-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  .be-mobile-load-more-btn {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .be-mobile-load-all-btn {
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  /* Customers Directory Modal Phone Preview */
+  .be-modal-title {
+    font-size: 0.96rem;
+    gap: 6px;
+  }
+
+  .be-cust-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .be-cust-card {
+    padding: 12px;
+    gap: 8px;
+    border-radius: 10px;
+  }
+
+  .be-cust-name {
+    font-size: 0.94rem;
+  }
+
+  .be-cust-stats-row {
+    padding: 7px 6px;
+    gap: 4px;
+  }
+
+  .be-cust-stats-row .stat-item small {
+    font-size: 0.64rem;
+  }
+
+  .be-cust-stats-row .stat-item b {
+    font-size: 0.8rem;
+  }
+
+  .be-cust-card-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .be-btn-view-details,
+  .be-btn-del-cust {
+    min-height: 38px;
+    font-size: 0.78rem;
+  }
+
+  .be-cust-detail-header {
+    padding: 12px;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .be-filter-group {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .be-filter-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 6px 8px;
+    font-size: 0.76rem;
+  }
+
+  .be-cust-ledger-wrap {
+    display: none;
+  }
+
+  .be-mobile-only-back {
+    display: inline-flex;
+  }
+
+  /* Dedicated Full-Page Mode for Customer Directory on Phone */
+  .be-modal-overlay.be-cust-page-mode {
+    padding: 0;
+    background: #f8fafc;
+    backdrop-filter: none;
+    align-items: stretch;
+  }
+
+  .be-cust-page-mode .be-modal-box {
+    max-width: 100%;
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+
+  .be-cust-page-mode .be-modal-header {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+  }
+
+  .be-mobile-cust-orders-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .be-mobile-cust-items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 9px;
+    padding: 8px;
+    background: #f8fafc;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+  }
+
+  .be-modal-body table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 

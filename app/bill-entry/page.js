@@ -3,6 +3,8 @@ import { useEffect, useState, useMemo, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import TopPageNav from "@/lib/TopPageNav";
+import MobileInvoicesList from "./MobileInvoicesList";
+import { exportReportToPdf, aoaToPdfSheet } from "@/lib/pdfExport";
 import { takaInWords } from "@/lib/words";
 import * as XLSX from "xlsx-js-style";
 import { XIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, BarChartIcon } from "@/lib/icons";
@@ -244,9 +246,9 @@ const fmt = (n) =>
 export default function BillEntryPage() {
   const router = useRouter();
   const [form, setForm] = useState(defaultForm());
-  const [bills, setBills] = useState(() => getClientCache("sales_bills", []));
-  const [customers, setCustomers] = useState(() => getClientCache("sales_customers", []));
-  const [initialLoading, setInitialLoading] = useState(() => !getClientCache("sales_bills"));
+  const [bills, setBills] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -283,15 +285,67 @@ export default function BillEntryPage() {
 
   // Balance Filtering and Excel Export States
   const [balanceFilter, setBalanceFilter] = useState("all"); // 'all' | 'due' | 'advance' | 'paid'
+  const [mobileVisibleCount, setMobileVisibleCount] = useState(24);
   const [showExcelMenu, setShowExcelMenu] = useState(false);
   const excelMenuRef = useRef(null);
+  const submitLockRef = useRef(false);
+  const desktopTableWrapRef = useRef(null);
+  const desktopSentinelRef = useRef(null);
+  const mobileSentinelRef = useRef(null);
 
-  // Excel Language Modal States
+  useEffect(() => {
+    setMobileVisibleCount(24);
+  }, [search, balanceFilter, durationMode]);
+
+  // Sync ?view=customers & ?cid=... for dedicated Customer Directory page mode on phone
+  useEffect(() => {
+    function syncFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("view") === "customers") {
+        setShowCustomersModal(true);
+        setSelectedCustomerId(params.get("cid") || null);
+      } else {
+        setShowCustomersModal(false);
+        setSelectedCustomerId(null);
+      }
+    }
+    syncFromUrl();
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, []);
+
+  function openCustomersDirectoryPage() {
+    setShowCustomersModal(true);
+    setSelectedCustomerId(null);
+    setModalSearch("");
+    if (typeof window !== "undefined" && window.innerWidth <= 768) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "customers");
+      url.searchParams.delete("cid");
+      window.history.pushState({ view: "customers" }, "", url.toString());
+    }
+  }
+
+  function closeCustomersDirectoryPage() {
+    setShowCustomersModal(false);
+    setSelectedCustomerId(null);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("view") || url.searchParams.has("cid")) {
+        url.searchParams.delete("view");
+        url.searchParams.delete("cid");
+        window.history.pushState({}, "", url.toString());
+      }
+    }
+  }
+
+  // Excel / PDF Language Modal States
   const [excelLangModal, setExcelLangModal] = useState({
     isOpen: false,
     mode: "auto", // 'auto' | 'filtered' | 'all' | 'due' | 'advance' | 'customer'
     customerGroup: null, // used when exporting a single customer
-    title: "Download Excel Report",
+    format: "xlsx", // 'xlsx' | 'pdf'
+    title: "Download Report",
   });
   const [translatingExcel, setTranslatingExcel] = useState(false);
   const [translatingProgress, setTranslatingProgress] = useState(0);
@@ -325,9 +379,89 @@ export default function BillEntryPage() {
   const [mergeBusy, setMergeBusy] = useState(false);
   const [mergeErr, setMergeErr] = useState("");
   const [mergeSuccess, setMergeSuccess] = useState("");
+  const [userRole, setUserRole] = useState("admin");
+  const [toast, setToast] = useState(null);
+  const toastTimerRef = useRef(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+
+  function showToast(message, type = "info") {
+    setToast({ message, type });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4200);
+  }
+
+  function askConfirm(message, danger = false) {
+    return new Promise((resolve) => {
+      setConfirmDialog({ message, danger, resolve });
+    });
+  }
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.user?.role) setUserRole(d.user.role);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    function handleEscClose(e) {
+      if (e.key !== "Escape") return;
+      if (confirmDialog) {
+        confirmDialog.resolve(false);
+        setConfirmDialog(null);
+      } else if (mergeModalOpen) {
+        setMergeModalOpen(false);
+      } else if (isEditingModal) {
+        setIsEditingModal(false);
+      } else if (selectedBillForModal) {
+        setSelectedBillForModal(null);
+      } else if (showRecycleModal) {
+        setShowRecycleModal(false);
+      } else if (showCustomersModal) {
+        setShowCustomersModal(false);
+      }
+    }
+    window.addEventListener("keydown", handleEscClose);
+    return () => window.removeEventListener("keydown", handleEscClose);
+  }, [confirmDialog, mergeModalOpen, isEditingModal, selectedBillForModal, showRecycleModal, showCustomersModal]);
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const observers = [];
+
+    if (desktopSentinelRef.current && desktopTableWrapRef.current) {
+      const obsDesktop = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting) {
+            setMobileVisibleCount((c) => c + 24);
+          }
+        },
+        { root: desktopTableWrapRef.current, rootMargin: "140px" }
+      );
+      obsDesktop.observe(desktopSentinelRef.current);
+      observers.push(obsDesktop);
+    }
+
+    if (mobileSentinelRef.current) {
+      const obsMobile = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting) {
+            setMobileVisibleCount((c) => c + 24);
+          }
+        },
+        { rootMargin: "200px" }
+      );
+      obsMobile.observe(mobileSentinelRef.current);
+      observers.push(obsMobile);
+    }
+
+    return () => observers.forEach((o) => o.disconnect());
+  });
 
   async function handleCreateWorkOrderFromBill(b) {
-    if (!window.confirm(`Create a Work Order for Invoice #${b.bill_no || b.id} (${b.customer_name})?`)) {
+    if (!(await askConfirm(`Create a Work Order for Invoice #${b.bill_no || b.id} (${b.customer_name})?`))) {
       return;
     }
     setWoCreatingFromBill(true);
@@ -354,13 +488,13 @@ export default function BillEntryPage() {
       });
       const data = await res.json();
       if (data.ok) {
-        alert(`Work Order #${data.work_order_no} created successfully! You can view it in the Work Orders page.`);
+        showToast(`Work Order #${data.work_order_no} created! View it in the Work Orders page.`, "success");
       } else {
-        alert(data.error || "Failed to create work order");
+        showToast(data.error || "Failed to create work order", "error");
       }
     } catch (err) {
       console.error("Error creating work order from bill:", err);
-      alert("Network error while creating work order");
+      showToast("Network error while creating work order", "error");
     } finally {
       setWoCreatingFromBill(false);
     }
@@ -396,6 +530,9 @@ export default function BillEntryPage() {
         setInitialLoading(false);
         setClientCache("sales_bills", b);
         setClientCache("sales_customers", c);
+      } else {
+        setErr(data.error || "Failed to load bills from server.");
+        setInitialLoading(false);
       }
     } catch (e) {
       console.error("Failed to load bills:", e);
@@ -404,6 +541,15 @@ export default function BillEntryPage() {
   }
 
   useEffect(() => {
+    const cachedBills = getClientCache("sales_bills");
+    const cachedCustomers = getClientCache("sales_customers");
+    if (cachedBills) {
+      setBills(cachedBills);
+      setInitialLoading(false);
+    }
+    if (cachedCustomers) {
+      setCustomers(cachedCustomers);
+    }
     loadData();
   }, []);
 
@@ -796,21 +942,32 @@ export default function BillEntryPage() {
   // Submit and Save Bill
   async function handleSubmit(e) {
     e.preventDefault();
-    setBusy(true);
-    setErr("");
-    setSuccessMsg("");
+    if (submitLockRef.current || busy) return;
 
     if (!form.customer_name.trim()) {
       setErr("Please enter customer name.");
-      setBusy(false);
       return;
     }
 
     if (!form.customer_mobile.trim()) {
       setErr("Please enter customer mobile number.");
-      setBusy(false);
       return;
     }
+
+    if (labour < 0 || transport < 0 || discount < 0 || payment < 0) {
+      setErr("Charges, discount, and payment cannot be negative.");
+      return;
+    }
+
+    if (discount > itemsSubtotal + labour + transport) {
+      setErr("Discount cannot exceed the gross bill total.");
+      return;
+    }
+
+    submitLockRef.current = true;
+    setBusy(true);
+    setErr("");
+    setSuccessMsg("");
 
     try {
       const finalCid = form.customer_id.trim() || generateUniqueCustomerId(form.customer_mobile, form.bill_date);
@@ -840,6 +997,7 @@ export default function BillEntryPage() {
       if (!res.ok) {
         setErr(result.error || "Failed to save bill");
       } else {
+        const warnings = [];
         // If previous due/advance was also filled out, record it too
         if (prevEntry.bill_no.trim() && parseFloat(prevEntry.amount) > 0 && prevEntry.date) {
           try {
@@ -871,26 +1029,32 @@ export default function BillEntryPage() {
               note: prevEntry.note.trim() || (isDue ? `Previous Due Balance (Ref Bill #${prevEntry.bill_no.trim()})` : `Previous Advance Received (Ref Bill #${prevEntry.bill_no.trim()})`),
               is_opening_balance: true,
             };
-            await fetch("/api/bill-entry", {
+            const prevRes = await fetch("/api/bill-entry", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(prevPayload),
             });
-            setPrevEntry({
-              date: today(),
-              bill_no: "",
-              amount: "",
-              type: "due",
-              note: "",
-            });
+            if (!prevRes.ok) {
+              const prevErrData = await prevRes.json().catch(() => ({}));
+              warnings.push(`Previous entry failed: ${prevErrData.error || prevRes.status}`);
+            } else {
+              setPrevEntry({
+                date: today(),
+                bill_no: "",
+                amount: "",
+                type: "due",
+                note: "",
+              });
+            }
           } catch (peErr) {
             console.error("Error saving accompanying previous entry:", peErr);
+            warnings.push("Previous entry failed to save.");
           }
         }
 
         if (addToWorkOrder) {
           try {
-            await fetch("/api/work-orders", {
+            const woRes = await fetch("/api/work-orders", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -911,12 +1075,21 @@ export default function BillEntryPage() {
                 production_notes: woDetails.production_notes || "",
               }),
             });
+            if (!woRes.ok) {
+              const woErrData = await woRes.json().catch(() => ({}));
+              warnings.push(`Work Order failed: ${woErrData.error || woRes.status}`);
+            }
           } catch (woErr) {
             console.error("Error creating work order from bill submit:", woErr);
+            warnings.push("Work Order failed to save.");
           }
         }
 
-        setSuccessMsg(`Bill #${form.bill_no || "saved"} recorded successfully!${addToWorkOrder ? " (Added to Work Order list)" : ""}`);
+        if (warnings.length > 0) {
+          setErr(`Bill #${form.bill_no || "saved"} was saved, but: ${warnings.join(" | ")}`);
+        } else {
+          setSuccessMsg(`Bill #${form.bill_no || "saved"} recorded successfully!${addToWorkOrder ? " (Added to Work Order list)" : ""}`);
+        }
         // Reset form for next entry
         setForm(defaultForm());
         setAddToWorkOrder(false);
@@ -931,6 +1104,7 @@ export default function BillEntryPage() {
     } catch (error) {
       setErr(error.message || "An unexpected error occurred");
     } finally {
+      submitLockRef.current = false;
       setBusy(false);
     }
   }
@@ -938,6 +1112,7 @@ export default function BillEntryPage() {
   // Handle Save Previous Due / Advance independently
   async function handleSavePrevEntry(e) {
     if (e) e.preventDefault();
+    if (submitLockRef.current || prevEntryBusy) return;
     setPrevEntryErr("");
     setPrevEntrySuccess("");
 
@@ -963,6 +1138,7 @@ export default function BillEntryPage() {
       return;
     }
 
+    submitLockRef.current = true;
     setPrevEntryBusy(true);
 
     try {
@@ -1034,23 +1210,31 @@ export default function BillEntryPage() {
     } catch (error) {
       setPrevEntryErr(error.message || "An unexpected error occurred");
     } finally {
+      submitLockRef.current = false;
       setPrevEntryBusy(false);
     }
   }
 
   // Delete Bill (Moves to Recycle Bin)
   async function handleDelete(id, bNo) {
-    if (!confirm(`Are you sure you want to move Bill #${bNo || id} to Recycle Bin?`)) return;
+    if (!(await askConfirm(`Move Bill #${bNo || id} to Recycle Bin?`, true))) return false;
     try {
       const res = await fetch(`/api/bill-entry/${id}`, { method: "DELETE" });
       if (res.status === 401) {
         router.replace("/");
-        return;
+        return false;
+      }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.error || "Failed to delete bill", "error");
+        return false;
       }
       setSuccessMsg(`Bill #${bNo || id} moved to Recycle Bin.`);
       await loadData();
+      return true;
     } catch (e) {
-      alert("Failed to delete bill: " + e.message);
+      showToast("Failed to delete bill: " + e.message, "error");
+      return false;
     }
   }
 
@@ -1224,6 +1408,7 @@ export default function BillEntryPage() {
   };
 
   async function handleSaveModalEdit() {
+    if (submitLockRef.current || modalEditBusy) return;
     if (!editModalData.customer_name.trim()) {
       setModalEditErr("Customer Name is required.");
       return;
@@ -1233,19 +1418,30 @@ export default function BillEntryPage() {
       return;
     }
 
+    const editSubtotal = (editModalData.items || []).reduce((sum, it) => {
+      const v = parseFloat(it.subtotal);
+      return sum + (isNaN(v) ? 0 : v);
+    }, 0);
+    const l = parseFloat(editModalData.labour_charge) || 0;
+    const t = parseFloat(editModalData.transport_cost) || 0;
+    const d = parseFloat(editModalData.discount) || 0;
+    const p = Math.round((parseFloat(editModalData.client_payment) || 0) * 100) / 100;
+
+    if (l < 0 || t < 0 || d < 0 || p < 0) {
+      setModalEditErr("Charges, discount, and payment cannot be negative.");
+      return;
+    }
+    if (d > editSubtotal + l + t) {
+      setModalEditErr("Discount cannot exceed the gross bill total.");
+      return;
+    }
+
+    submitLockRef.current = true;
     setModalEditBusy(true);
     setModalEditErr("");
 
     try {
-      const editSubtotal = (editModalData.items || []).reduce((sum, it) => {
-        const v = parseFloat(it.subtotal);
-        return sum + (isNaN(v) ? 0 : v);
-      }, 0);
-      const l = parseFloat(editModalData.labour_charge) || 0;
-      const t = parseFloat(editModalData.transport_cost) || 0;
-      const d = parseFloat(editModalData.discount) || 0;
       const computedTotalBill = Math.round(Math.max(0, editSubtotal + l + t - d) * 100) / 100;
-      const p = Math.round((parseFloat(editModalData.client_payment) || 0) * 100) / 100;
       let computedDueAdvance = Math.round((computedTotalBill - p) * 100) / 100;
       if (Math.abs(computedDueAdvance) < 0.005) computedDueAdvance = 0;
 
@@ -1294,6 +1490,7 @@ export default function BillEntryPage() {
     } catch (err) {
       setModalEditErr(err.message || "Failed to save changes");
     } finally {
+      submitLockRef.current = false;
       setModalEditBusy(false);
     }
   }
@@ -1313,13 +1510,13 @@ export default function BillEntryPage() {
       }
       if (!res.ok) {
         const d = await res.json();
-        alert(d.error || "Failed to restore bill");
+        showToast(d.error || "Failed to restore bill", "error");
         return;
       }
       setSuccessMsg(`Bill #${bNo || id} restored successfully!`);
       await loadData();
     } catch (e) {
-      alert("Failed to restore bill: " + e.message);
+      showToast("Failed to restore bill: " + e.message, "error");
     } finally {
       setBusy(false);
     }
@@ -1327,9 +1524,10 @@ export default function BillEntryPage() {
 
   async function handlePermanentDeleteBill(id, bNo) {
     if (
-      !confirm(
-        `Are you sure you want to PERMANENTLY delete Bill #${bNo || id}?\n\nThis action CANNOT be undone and will permanently remove this bill from the database!`
-      )
+      !(await askConfirm(
+        `PERMANENTLY delete Bill #${bNo || id}?\n\nThis action CANNOT be undone and will permanently remove this bill from the database!`,
+        true
+      ))
     ) {
       return;
     }
@@ -1346,20 +1544,20 @@ export default function BillEntryPage() {
       }
       if (!res.ok) {
         const d = await res.json();
-        alert(d.error || "Failed to delete permanently");
+        showToast(d.error || "Failed to delete permanently", "error");
         return;
       }
       setSuccessMsg(`Bill #${bNo || id} permanently deleted.`);
       await loadData();
     } catch (e) {
-      alert("Failed to permanently delete bill: " + e.message);
+      showToast("Failed to permanently delete bill: " + e.message, "error");
     } finally {
       setBusy(false);
     }
   }
 
   async function handleRestoreAll() {
-    if (!confirm("Are you sure you want to restore ALL items from the Recycle Bin?")) return;
+    if (!(await askConfirm("Restore ALL items from the Recycle Bin?"))) return;
     try {
       setBusy(true);
       const res = await fetch("/api/bill-entry/recycle-bin", {
@@ -1373,13 +1571,13 @@ export default function BillEntryPage() {
       }
       if (!res.ok) {
         const d = await res.json();
-        alert(d.error || "Failed to restore all items");
+        showToast(d.error || "Failed to restore all items", "error");
         return;
       }
       setSuccessMsg("All bills from Recycle Bin have been restored!");
       await loadData();
     } catch (e) {
-      alert("Failed to restore all: " + e.message);
+      showToast("Failed to restore all: " + e.message, "error");
     } finally {
       setBusy(false);
     }
@@ -1387,9 +1585,10 @@ export default function BillEntryPage() {
 
   async function handleEmptyRecycleBin() {
     if (
-      !confirm(
-        "Are you sure you want to EMPTY the Recycle Bin?\n\nAll deleted bills will be PERMANENTLY removed and cannot be recovered!"
-      )
+      !(await askConfirm(
+        "EMPTY the Recycle Bin?\n\nAll deleted bills will be PERMANENTLY removed and cannot be recovered!",
+        true
+      ))
     ) {
       return;
     }
@@ -1406,13 +1605,13 @@ export default function BillEntryPage() {
       }
       if (!res.ok) {
         const d = await res.json();
-        alert(d.error || "Failed to empty recycle bin");
+        showToast(d.error || "Failed to empty recycle bin", "error");
         return;
       }
       setSuccessMsg("Recycle Bin has been emptied.");
       await loadData();
     } catch (e) {
-      alert("Failed to empty recycle bin: " + e.message);
+      showToast("Failed to empty recycle bin: " + e.message, "error");
     } finally {
       setBusy(false);
     }
@@ -1669,9 +1868,10 @@ export default function BillEntryPage() {
   // Delete Customer by Customer ID (Moves to Recycle Bin)
   async function handleDeleteCustomer(cid, name) {
     if (
-      !confirm(
-        `Are you sure you want to move Customer [${cid}] (${name}) and all their bills to Recycle Bin?`
-      )
+      !(await askConfirm(
+        `Move Customer [${cid}] (${name}) and all their bills to Recycle Bin?`,
+        true
+      ))
     ) {
       return;
     }
@@ -1686,7 +1886,7 @@ export default function BillEntryPage() {
       }
       if (!res.ok) {
         const d = await res.json();
-        alert(d.error || "Failed to delete customer");
+        showToast(d.error || "Failed to delete customer", "error");
         return;
       }
       if (selectedCustomerId === cid) {
@@ -1695,7 +1895,7 @@ export default function BillEntryPage() {
       setSuccessMsg(`Customer [${cid}] and their bills moved to Recycle Bin.`);
       await loadData();
     } catch (e) {
-      alert("Failed to delete customer: " + e.message);
+      showToast("Failed to delete customer: " + e.message, "error");
     } finally {
       setBusy(false);
     }
@@ -1919,32 +2119,34 @@ export default function BillEntryPage() {
   }, [filteredBills]);
 
 
-  // Open Language Modal for Invoices Excel Export
-  function openExcelLanguageModal(mode = "auto", customerGroup = null) {
+  // Open Language Modal for Invoices Excel / PDF Export
+  function openExcelLanguageModal(mode = "auto", customerGroup = null, format = "xlsx") {
     setShowExcelMenu(false);
-    let title = "Download Excel Report";
+    const fmtLabel = format === "pdf" ? "PDF" : "Excel";
+    let title = `Download ${fmtLabel} Report`;
     if (customerGroup) {
-      title = `Customer Statement (${customerGroup.displayName})`;
+      title = `Customer Statement ${fmtLabel} (${customerGroup.displayName})`;
     } else if (mode === "due") {
-      title = "Due Accounts Only Report";
+      title = `Due Accounts ${fmtLabel} Report`;
     } else if (mode === "advance") {
-      title = "Advance Accounts Only Report";
+      title = `Advance Accounts ${fmtLabel} Report`;
     } else if (mode === "all") {
-      title = "All Invoices Master Report";
+      title = `All Invoices Master ${fmtLabel} Report`;
     } else {
-      title = "Filtered Invoices Report";
+      title = `Filtered Invoices ${fmtLabel} Report`;
     }
 
     setExcelLangModal({
       isOpen: true,
       mode,
       customerGroup,
+      format,
       title,
     });
   }
 
-  // Export to Excel Function (Supports 'en' and 'bn')
-  async function executeExportExcel(mode = "auto", lang = "en") {
+  // Export to Excel or PDF Function (Supports 'en' and 'bn')
+  async function executeExportExcel(mode = "auto", lang = "en", format = "xlsx") {
     try {
       if (lang === "bn") {
         setTranslatingExcel(true);
@@ -2258,7 +2460,25 @@ export default function BillEntryPage() {
             ? durationMode.charAt(0).toUpperCase() + durationMode.slice(1)
             : "Filtered";
         const langTag = lang === "bn" ? "_Bangla" : "";
-        XLSX.writeFile(wb, `CEW_${tag}_Invoices_${ymd(today())}${langTag}.xlsx`);
+        if (format === "pdf") {
+          const sheets = [aoaToPdfSheet(invRows, lang === "bn" ? "চালানসমূহ" : "Invoices", [6, 7, 8, 10, 11], [4, 5, 9, 12])];
+          if (summaryRows) sheets.push(aoaToPdfSheet(summaryRows, lang === "bn" ? "গ্রাহক ব্যালেন্স" : "Customer Summary", [5, 6, 7, 8], [1, 4]));
+          setTranslatingExcel(false);
+          setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+          await new Promise((r) => setTimeout(r, 30));
+          await exportReportToPdf({
+            title: lang === "bn" ? "বিক্রয় চালান রিপোর্ট" : "CEW Sales Invoices Report",
+            subtitle: periodInfo,
+            filename: `CEW_${tag}_Invoices_${ymd(today())}${langTag}.pdf`,
+            sheets,
+            lang,
+          });
+        } else {
+          setTranslatingExcel(false);
+          setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+          await new Promise((r) => setTimeout(r, 30));
+          XLSX.writeFile(wb, `CEW_${tag}_Invoices_${ymd(today())}${langTag}.xlsx`);
+        }
       } else if (effectiveMode === "due") {
         const dueBills = durationFilteredBills.filter((b) => (Number(b.due_advance) || 0) > 0);
         const dueGroups = customerIdGroups.filter((g) => (Number(g.netDue) || 0) > 0);
@@ -2280,7 +2500,26 @@ export default function BillEntryPage() {
         XLSX.utils.book_append_sheet(wb, wsSum, lang === "bn" ? "বাকি গ্রাহক" : "Due Customers");
 
         const langTag = lang === "bn" ? "_Bangla" : "";
-        XLSX.writeFile(wb, `CEW_Due_Invoices_${ymd(today())}${langTag}.xlsx`);
+        if (format === "pdf") {
+          setTranslatingExcel(false);
+          setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+          await new Promise((r) => setTimeout(r, 30));
+          await exportReportToPdf({
+            title: lang === "bn" ? "বাকি চালান রিপোর্ট" : "CEW Outstanding Due Invoices",
+            subtitle: periodInfo,
+            filename: `CEW_Due_Invoices_${ymd(today())}${langTag}.pdf`,
+            sheets: [
+              aoaToPdfSheet(invRows, lang === "bn" ? "বাকি চালান" : "Due Invoices", [6, 7, 8, 10, 11], [4, 5, 9, 12]),
+              aoaToPdfSheet(sumRows, lang === "bn" ? "বাকি গ্রাহক" : "Due Customers", [5, 6, 7, 8], [1, 4]),
+            ],
+            lang,
+          });
+        } else {
+          setTranslatingExcel(false);
+          setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+          await new Promise((r) => setTimeout(r, 30));
+          XLSX.writeFile(wb, `CEW_Due_Invoices_${ymd(today())}${langTag}.xlsx`);
+        }
       } else if (effectiveMode === "advance") {
         const advBills = durationFilteredBills.filter((b) => (Number(b.due_advance) || 0) < 0);
         const advGroups = customerIdGroups.filter((g) => (Number(g.netDue) || 0) < 0);
@@ -2302,7 +2541,26 @@ export default function BillEntryPage() {
         XLSX.utils.book_append_sheet(wb, wsSum, lang === "bn" ? "অগ্রিম গ্রাহক" : "Adv Customers");
 
         const langTag = lang === "bn" ? "_Bangla" : "";
-        XLSX.writeFile(wb, `CEW_Advance_Invoices_${ymd(today())}${langTag}.xlsx`);
+        if (format === "pdf") {
+          setTranslatingExcel(false);
+          setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+          await new Promise((r) => setTimeout(r, 30));
+          await exportReportToPdf({
+            title: lang === "bn" ? "অগ্রিম চালান রিপোর্ট" : "CEW Advance Payment Invoices",
+            subtitle: periodInfo,
+            filename: `CEW_Advance_Invoices_${ymd(today())}${langTag}.pdf`,
+            sheets: [
+              aoaToPdfSheet(invRows, lang === "bn" ? "অগ্রিম চালান" : "Adv Invoices", [6, 7, 8, 10, 11], [4, 5, 9, 12]),
+              aoaToPdfSheet(sumRows, lang === "bn" ? "অগ্রিম গ্রাহক" : "Adv Customers", [5, 6, 7, 8], [1, 4]),
+            ],
+            lang,
+          });
+        } else {
+          setTranslatingExcel(false);
+          setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+          await new Promise((r) => setTimeout(r, 30));
+          XLSX.writeFile(wb, `CEW_Advance_Invoices_${ymd(today())}${langTag}.xlsx`);
+        }
       } else {
         // Mode "all" (Master Report) - 2 sheets: Customer Balances & All Invoices
         let sumRows = getCustomersSummarySheetRows(customerIdGroups, "ALL CUSTOMER BALANCES SUMMARY");
@@ -2322,26 +2580,46 @@ export default function BillEntryPage() {
         XLSX.utils.book_append_sheet(wb, wsAll, lang === "bn" ? "সকল চালান" : "All Invoices");
 
         const langTag = lang === "bn" ? "_Bangla" : "";
-        XLSX.writeFile(wb, `CEW_All_Invoices_Master_${ymd(today())}${langTag}.xlsx`);
+        if (format === "pdf") {
+          setTranslatingExcel(false);
+          setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+          await new Promise((r) => setTimeout(r, 30));
+          await exportReportToPdf({
+            title: lang === "bn" ? "সকল বিক্রয় চালান মাস্টার রিপোর্ট" : "CEW All Invoices Master Report",
+            subtitle: periodInfo,
+            filename: `CEW_All_Invoices_Master_${ymd(today())}${langTag}.pdf`,
+            sheets: [
+              aoaToPdfSheet(allRows, lang === "bn" ? "সকল চালান" : "All Invoices", [6, 7, 8, 10, 11], [4, 5, 9, 12]),
+              aoaToPdfSheet(sumRows, lang === "bn" ? "গ্রাহক ব্যালেন্স" : "Customer Balances", [5, 6, 7, 8], [1, 4]),
+            ],
+            lang,
+          });
+        } else {
+          setTranslatingExcel(false);
+          setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+          await new Promise((r) => setTimeout(r, 30));
+          XLSX.writeFile(wb, `CEW_All_Invoices_Master_${ymd(today())}${langTag}.xlsx`);
+        }
       }
     } catch (err) {
-      console.error("Excel export failed:", err);
-      alert("Failed to export Excel file: " + err.message);
+      console.error("Export failed:", err);
+      showToast("Failed to export report: " + err.message, "error");
     } finally {
       setShowExcelMenu(false);
       setTranslatingExcel(false);
+      setTranslatingProgress(0);
       setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
     }
   }
 
-  // Trigger Customer Detailed Excel Export Modal
-  function handleExportCustomerDetailedExcel(group) {
+  // Trigger Customer Detailed Excel / PDF Export Modal
+  function handleExportCustomerDetailedExcel(group, format = "xlsx") {
     if (!group) return;
-    openExcelLanguageModal("customer", group);
+    openExcelLanguageModal("customer", group, format);
   }
 
-  // Export Single Customer Complete Detailed Statement & Items to Excel (.xlsx); Supports 'en' and 'bn'
-  async function executeExportCustomerDetailedExcel(group, lang = "en") {
+  // Export Single Customer Complete Detailed Statement & Items to Excel (.xlsx) or PDF (.pdf); Supports 'en' and 'bn'
+  async function executeExportCustomerDetailedExcel(group, lang = "en", format = "xlsx") {
     if (!group) return;
     try {
       const isBn = lang === "bn";
@@ -2737,16 +3015,36 @@ export default function BillEntryPage() {
       applyExcelStyles(wsLedger, isBn);
       XLSX.utils.book_append_sheet(wb, wsLedger, lang === "bn" ? "লেনদেন খতিয়ান" : "Invoices Ledger");
 
-      // Save workbook to file
+      // Save workbook or PDF to file
       const safeName = (group.displayName || "Customer").replace(/[^a-zA-Z0-9_-]/g, "_");
       const safeCid = (group.customerId || "CID").replace(/[^a-zA-Z0-9_-]/g, "_");
       const langTag = lang === "bn" ? "_Bangla" : "";
-      XLSX.writeFile(wb, `CEW_${safeCid}_${safeName}_Detailed_Statement_${ymd(today())}${langTag}.xlsx`);
+      if (format === "pdf") {
+        setTranslatingExcel(false);
+        setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+        await new Promise((r) => setTimeout(r, 30));
+        await exportReportToPdf({
+          title: lang === "bn" ? `গ্রাহক বিবরণী — ${group.displayName}` : `Customer Statement — ${group.displayName}`,
+          subtitle: `ID: ${group.customerId || "—"} | Mobile: ${group.mobile || "—"}`,
+          filename: `CEW_${safeCid}_${safeName}_Detailed_Statement_${ymd(today())}${langTag}.pdf`,
+          sheets: [
+            aoaToPdfSheet(ledgerRows, lang === "bn" ? "লেনদেন খতিয়ান" : "Invoices Ledger", [4, 5, 6, 7, 8, 9]),
+            aoaToPdfSheet(itemRows, lang === "bn" ? "পণ্য বিবরণ" : "All Purchased Items", [4, 6, 7]),
+          ],
+          lang,
+        });
+      } else {
+        setTranslatingExcel(false);
+        setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+        await new Promise((r) => setTimeout(r, 30));
+        XLSX.writeFile(wb, `CEW_${safeCid}_${safeName}_Detailed_Statement_${ymd(today())}${langTag}.xlsx`);
+      }
     } catch (err) {
-      console.error("Export customer detailed excel failed:", err);
-      alert("Failed to export detailed customer Excel statement: " + err.message);
+      console.error("Export customer detailed statement failed:", err);
+      showToast("Failed to export detailed customer statement: " + err.message, "error");
     } finally {
       setTranslatingExcel(false);
+      setTranslatingProgress(0);
       setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
     }
   }
@@ -2768,11 +3066,7 @@ export default function BillEntryPage() {
           {/* Customers Directory Button */}
           <button
             type="button"
-            onClick={() => {
-              setShowCustomersModal(true);
-              setSelectedCustomerId(null);
-              setModalSearch("");
-            }}
+            onClick={openCustomersDirectoryPage}
             className="be-nav-btn"
             style={{
               background: "#1e3a8a",
@@ -3882,6 +4176,30 @@ export default function BillEntryPage() {
               </button>
             )}
 
+            {/* Download PDF Button */}
+            <button
+              type="button"
+              onClick={() => openExcelLanguageModal("auto", null, "pdf")}
+              className="be-btn-ghost"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                padding: "8px 12px",
+                fontSize: "0.8rem",
+                borderRadius: "8px",
+                fontWeight: 700,
+                color: "#b91c1c",
+                borderColor: "#fecaca",
+                background: "#fef2f2",
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+              }}
+              title={`Download ${filteredBills.length} invoices as formatted PDF`}
+            >
+              <span>Download PDF ({filteredBills.length})</span>
+            </button>
+
             {/* Excel Export Split Button */}
             <div className="be-excel-dropdown-wrap" ref={excelMenuRef}>
               <div style={{ display: "inline-flex", borderRadius: "8px", overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
@@ -4218,7 +4536,7 @@ export default function BillEntryPage() {
           </div>
         </div>
 
-        <div className="be-ledger-table-wrap">
+        <div className="be-ledger-table-wrap be-sales-desktop-table" ref={desktopTableWrapRef}>
           <table className="be-ledger-table">
             <thead>
               <tr>
@@ -4243,7 +4561,7 @@ export default function BillEntryPage() {
                   </td>
                 </tr>
               ) : (
-                filteredBills.map((b, idx) => {
+                filteredBills.slice(0, mobileVisibleCount).map((b, idx) => {
                   const totalBill = Number(b.total_bill || 0);
                   const payment = Number(b.client_payment || 0);
                   const dueThisBill = Number(b.dueThisBill || 0);
@@ -4511,6 +4829,20 @@ export default function BillEntryPage() {
                   );
                 })
               )}
+              {filteredBills.length > mobileVisibleCount && (
+                <tr ref={desktopSentinelRef}>
+                  <td colSpan={11} style={{ textAlign: "center", padding: "12px", color: "#64748b", fontSize: "0.78rem", fontWeight: 600 }}>
+                    Showing {Math.min(mobileVisibleCount, filteredBills.length)} of {filteredBills.length} entries — scroll down to load more{" "}
+                    <button
+                      type="button"
+                      onClick={() => setMobileVisibleCount(filteredBills.length)}
+                      style={{ marginLeft: 8, background: "transparent", border: "none", color: "#2563eb", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}
+                    >
+                      (Load All)
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
             {filteredBills.length > 0 && (
               <tfoot>
@@ -4579,10 +4911,35 @@ export default function BillEntryPage() {
                     )}
                   </td>
                 </tr>
+                <tr className="be-cash-in-hand-row">
+                  <td colSpan={5} style={{ textAlign: "right", fontWeight: 800, fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    Total Cash in Hand (Sales Collected) :
+                  </td>
+                  <td colSpan={6} style={{ textAlign: "left", fontWeight: 900, fontSize: "0.94rem", whiteSpace: "nowrap" }}>
+                    ৳ {fmt(filteredTableTotals.totalClientPayment)}{" "}
+                    <span style={{ fontSize: "0.73rem", fontWeight: 600, color: "#047857", marginLeft: "6px" }}>
+                      (Invoice Paid + Due Received + Advance)
+                    </span>
+                  </td>
+                </tr>
               </tfoot>
             )}
           </table>
         </div>
+
+        {/* Mobile Phone Card View for Recorded Invoices (<= 768px) */}
+        <MobileInvoicesList
+          filteredBills={filteredBills}
+          mobileVisibleCount={mobileVisibleCount}
+          setMobileVisibleCount={setMobileVisibleCount}
+          mobileSentinelRef={mobileSentinelRef}
+          expandedBillId={expandedBillId}
+          setExpandedBillId={setExpandedBillId}
+          setSelectedBillForModal={setSelectedBillForModal}
+          filteredTableTotals={filteredTableTotals}
+          isFilterActive={balanceFilter !== "all" || durationMode !== "all" || Boolean(search.trim())}
+          fmt={fmt}
+        />
       </section>
 
       {/* ORDER DETAILS POP-UP MODAL (VIEW & EDIT) */}
@@ -4635,8 +4992,8 @@ export default function BillEntryPage() {
         return (
           <div
             className="be-modal-overlay"
-            onClick={() => {
-              if (isEditingModal && !confirm("Discard unsaved changes?")) return;
+            onClick={async () => {
+              if (isEditingModal && !(await askConfirm("Discard unsaved changes?", true))) return;
               setSelectedBillForModal(null);
               setIsEditingModal(false);
               setEditModalData(null);
@@ -4805,12 +5162,11 @@ export default function BillEntryPage() {
                   {!isEditingModal && (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (confirm(`Are you sure you want to delete Bill #${b.bill_no || b.id}? This will move it to Recycle Bin.`)) {
-                          handleDelete(b.id, b.bill_no);
-                          setSelectedBillForModal(null);
-                        }
+                      onClick={async () => {
+                        const deleted = await handleDelete(b.id, b.bill_no);
+                        if (deleted) setSelectedBillForModal(null);
                       }}
+                      aria-label="Delete Bill"
                       style={{
                         background: "rgba(239, 68, 68, 0.2)",
                         border: "1px solid rgba(239, 68, 68, 0.35)",
@@ -4834,13 +5190,14 @@ export default function BillEntryPage() {
 
                   <button
                     type="button"
-                    onClick={() => {
-                      if (isEditingModal && !confirm("Discard unsaved changes?")) return;
+                    onClick={async () => {
+                      if (isEditingModal && !(await askConfirm("Discard unsaved changes?", true))) return;
                       setSelectedBillForModal(null);
                       setIsEditingModal(false);
                       setEditModalData(null);
                       setModalEditErr("");
                     }}
+                    aria-label="Close Bill Details"
                     className="be-modal-close-btn"
                     style={{
                       background: "rgba(255,255,255,0.12)",
@@ -5397,8 +5754,8 @@ export default function BillEntryPage() {
                     <>
                       <button
                         type="button"
-                        onClick={() => {
-                          if (confirm("Discard unsaved changes?")) {
+                        onClick={async () => {
+                          if (await askConfirm("Discard unsaved changes?", true)) {
                             setIsEditingModal(false);
                             setEditModalData(null);
                             setModalEditErr("");
@@ -5443,11 +5800,9 @@ export default function BillEntryPage() {
                     <>
                       <button
                         type="button"
-                        onClick={() => {
-                          if (confirm(`Are you sure you want to delete Bill #${b.bill_no || b.id}? This will move it to Recycle Bin.`)) {
-                            handleDelete(b.id, b.bill_no);
-                            setSelectedBillForModal(null);
-                          }
+                        onClick={async () => {
+                          const deleted = await handleDelete(b.id, b.bill_no);
+                          if (deleted) setSelectedBillForModal(null);
                         }}
                         className="be-btn-ghost"
                         style={{
@@ -5546,14 +5901,11 @@ export default function BillEntryPage() {
         );
       })()}
 
-      {/* CUSTOMERS DIRECTORY MODAL */}
+      {/* CUSTOMERS DIRECTORY MODAL (Popup on PC, Dedicated Page on Phone) */}
       {showCustomersModal && (
         <div
-          className="be-modal-overlay"
-          onClick={() => {
-            setShowCustomersModal(false);
-            setSelectedCustomerId(null);
-          }}
+          className="be-modal-overlay be-cust-page-mode"
+          onClick={closeCustomersDirectoryPage}
         >
           <div
             className="be-modal-box"
@@ -5563,14 +5915,31 @@ export default function BillEntryPage() {
             {/* Modal Header */}
             <div className="be-modal-header">
               <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                {activeCustomerGroup && (
+                {activeCustomerGroup ? (
                   <button
                     type="button"
-                    onClick={() => setSelectedCustomerId(null)}
+                    onClick={() => {
+                      setSelectedCustomerId(null);
+                      if (typeof window !== "undefined" && window.innerWidth <= 768) {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set("view", "customers");
+                        url.searchParams.delete("cid");
+                        window.history.pushState({ view: "customers" }, "", url.toString());
+                      }
+                    }}
                     className="be-back-btn"
                     title="Back to All Customers"
                   >
                     ← Back to All Customers
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={closeCustomersDirectoryPage}
+                    className="be-back-btn be-mobile-only-back"
+                    title="Back to Sales"
+                  >
+                    ← Back to Sales
                   </button>
                 )}
                 <h2 className="be-modal-title">
@@ -5600,10 +5969,7 @@ export default function BillEntryPage() {
 
               <button
                 type="button"
-                onClick={() => {
-                  setShowCustomersModal(false);
-                  setSelectedCustomerId(null);
-                }}
+                onClick={closeCustomersDirectoryPage}
                 className="be-modal-close-btn"
                 title="Close Modal"
                 style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}
@@ -5848,6 +6214,7 @@ export default function BillEntryPage() {
                       No bills recorded yet for this customer ID.
                     </div>
                   ) : (
+                    <>
                     <div className="be-cust-ledger-wrap">
                       <table className="be-cust-ledger-table">
                         <thead>
@@ -6172,6 +6539,82 @@ export default function BillEntryPage() {
                         </tfoot>
                       </table>
                     </div>
+
+                    {/* Mobile Phone Card View for Customer Order History (<= 768px) */}
+                    <div className="be-mobile-cust-orders-list">
+                      {activeCustomerBills.map((b) => {
+                        const items = parseItems(b.items);
+                        const bal = b.runningBalance !== undefined ? b.runningBalance : (Number(b.due_advance) || 0);
+                        return (
+                          <div
+                            key={`mc-${b.id}`}
+                            className="be-mobile-inv-card"
+                            onClick={() => {
+                              setSelectedBillForModal(b);
+                              setIsEditingModal(false);
+                            }}
+                          >
+                            <div className="be-mobile-inv-top">
+                              <span className="be-mobile-inv-billno">
+                                #{b.bill_no || b.id}
+                              </span>
+                              <span className="be-mobile-inv-date">{b.bill_date || "—"}</span>
+                            </div>
+
+                            {items.length > 0 ? (
+                              <div className="be-mobile-cust-items">
+                                {items.map((it, idx) => {
+                                  const hasW = it.weight !== undefined && it.weight !== null && it.weight !== "" && Number(it.weight) > 0;
+                                  const hasQ = it.quantity !== undefined && it.quantity !== null && it.quantity !== "" && Number(it.quantity) > 0;
+                                  const qtyText = hasW && hasQ
+                                    ? `${it.quantity} (${it.weight} kg)`
+                                    : hasW
+                                      ? `${it.weight} ${it.unit || "kg"}`
+                                      : hasQ
+                                        ? `${it.quantity} ${it.unit || "pcs"}`
+                                        : "—";
+                                  return (
+                                    <div key={idx} className="be-mobile-inv-item-row">
+                                      <div>
+                                        <strong>{it.name || "Item"}</strong>
+                                        <small>
+                                          {qtyText} {it.rate ? `× ৳ ${fmt(it.rate)}` : ""}
+                                        </small>
+                                      </div>
+                                      <span>৳ {fmt(it.subtotal || 0)}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: "0.78rem", color: "#64748b", marginBottom: "8px" }}>
+                                {b.note || (Number(b.total_bill) === 0 && Number(b.client_payment) > 0 ? "Payment Received" : "Bill Voucher")}
+                              </div>
+                            )}
+
+                            <div className="be-mobile-inv-metrics" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+                              <div>
+                                <small>Total</small>
+                                <strong>৳ {fmt(b.total_bill)}</strong>
+                              </div>
+                              <div>
+                                <small>Paid</small>
+                                <strong style={{ color: Number(b.client_payment) > 0 ? "#059669" : "#64748b" }}>
+                                  ৳ {fmt(b.client_payment)}
+                                </strong>
+                              </div>
+                              <div>
+                                <small>Balance</small>
+                                <strong style={{ color: bal > 0 ? "#dc2626" : bal < 0 ? "#2563eb" : "#059669" }}>
+                                  {bal > 0 ? `Due ৳ ${fmt(bal)}` : bal < 0 ? `Adv ৳ ${fmt(Math.abs(bal))}` : "Settled"}
+                                </strong>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    </>
                   )}
                 </div>
               ) : (
@@ -6340,7 +6783,7 @@ export default function BillEntryPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleExportCustomerDetailedExcel(group)}
+                                onClick={() => handleExportCustomerDetailedExcel(group, "xlsx")}
                                 className="be-btn-excel"
                                 style={{ padding: "7px 11px", fontSize: "0.8rem" }}
                                 title="Download Excel statement with full item details"
@@ -6351,6 +6794,15 @@ export default function BillEntryPage() {
                                   <line x1="12" y1="15" x2="12" y2="3" />
                                 </svg>
                                 Excel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleExportCustomerDetailedExcel(group, "pdf")}
+                                className="be-btn-ghost"
+                                style={{ padding: "7px 11px", fontSize: "0.8rem", fontWeight: 700, color: "#b91c1c", borderColor: "#fecaca", background: "#fef2f2" }}
+                                title="Download PDF statement with full item details"
+                              >
+                                PDF
                               </button>
                               <button
                                 type="button"
@@ -6455,18 +6907,20 @@ export default function BillEntryPage() {
                       Restore All (সব ফেরত আনুন)
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={handleEmptyRecycleBin}
-                      className="be-btn-empty-bin"
-                      title="Permanently remove all deleted bills"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                      Empty Recycle Bin (খালি করুন)
-                    </button>
+                    {userRole === "admin" && (
+                      <button
+                        type="button"
+                        onClick={handleEmptyRecycleBin}
+                        className="be-btn-empty-bin"
+                        title="Permanently remove all deleted bills"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                        Empty Recycle Bin (খালি করুন)
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -6576,18 +7030,20 @@ export default function BillEntryPage() {
                                   </svg>
                                   Restore
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handlePermanentDeleteBill(b.id, b.bill_no)}
-                                  className="be-btn-perm-del"
-                                  title="Delete permanently from database"
-                                >
-                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                    <polyline points="3 6 5 6 21 6" />
-                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                  </svg>
-                                  Delete
-                                </button>
+                                {userRole === "admin" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePermanentDeleteBill(b.id, b.bill_no)}
+                                    className="be-btn-perm-del"
+                                    title="Delete permanently from database"
+                                  >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                      <polyline points="3 6 5 6 21 6" />
+                                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                    </svg>
+                                    Delete
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -6662,10 +7118,11 @@ export default function BillEntryPage() {
                     type="button"
                     className="excel-lang-btn bn"
                     onClick={() => {
+                      const fmtType = excelLangModal.format || "xlsx";
                       if (excelLangModal.customerGroup) {
-                        executeExportCustomerDetailedExcel(excelLangModal.customerGroup, "bn");
+                        executeExportCustomerDetailedExcel(excelLangModal.customerGroup, "bn", fmtType);
                       } else {
-                        executeExportExcel(excelLangModal.mode, "bn");
+                        executeExportExcel(excelLangModal.mode, "bn", fmtType);
                       }
                     }}
                   >
@@ -6680,10 +7137,11 @@ export default function BillEntryPage() {
                     type="button"
                     className="excel-lang-btn"
                     onClick={() => {
+                      const fmtType = excelLangModal.format || "xlsx";
                       if (excelLangModal.customerGroup) {
-                        executeExportCustomerDetailedExcel(excelLangModal.customerGroup, "en");
+                        executeExportCustomerDetailedExcel(excelLangModal.customerGroup, "en", fmtType);
                       } else {
-                        executeExportExcel(excelLangModal.mode, "en");
+                        executeExportExcel(excelLangModal.mode, "en", fmtType);
                       }
                     }}
                   >
@@ -6918,6 +7376,99 @@ export default function BillEntryPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {confirmDialog && (
+        <div
+          className="be-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          style={{ zIndex: 1300 }}
+          onClick={() => {
+            confirmDialog.resolve(false);
+            setConfirmDialog(null);
+          }}
+        >
+          <div
+            className="be-modal-card"
+            style={{ maxWidth: 420, padding: "22px 24px", borderRadius: 12, background: "#ffffff", boxShadow: "0 20px 50px rgba(15,23,42,0.28)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: "0 0 10px", fontSize: "1.02rem", fontWeight: 800, color: confirmDialog.danger ? "#991b1b" : "#0f172a" }}>
+              {confirmDialog.danger ? "Confirm Action" : "Please Confirm"}
+            </h3>
+            <p style={{ margin: "0 0 18px", fontSize: "0.88rem", lineHeight: 1.5, color: "#334155", whiteSpace: "pre-line" }}>
+              {confirmDialog.message}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                className="be-btn-ghost"
+                onClick={() => {
+                  confirmDialog.resolve(false);
+                  setConfirmDialog(null);
+                }}
+                style={{ padding: "8px 14px", borderRadius: 8, fontWeight: 700, fontSize: "0.82rem", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  confirmDialog.resolve(true);
+                  setConfirmDialog(null);
+                }}
+                style={{
+                  background: confirmDialog.danger ? "#dc2626" : "#0f172a",
+                  color: "#ffffff",
+                  border: "none",
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  fontSize: "0.82rem",
+                  cursor: "pointer",
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            bottom: 20,
+            right: 20,
+            zIndex: 1400,
+            maxWidth: 380,
+            padding: "12px 16px",
+            borderRadius: 10,
+            background: toast.type === "error" ? "#991b1b" : toast.type === "success" ? "#065f46" : "#0f172a",
+            color: "#ffffff",
+            fontSize: "0.84rem",
+            fontWeight: 600,
+            boxShadow: "0 10px 30px rgba(15,23,42,0.28)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <span>{toast.message}</span>
+          <button
+            type="button"
+            aria-label="Dismiss notification"
+            onClick={() => setToast(null)}
+            style={{ background: "transparent", border: "none", color: "#ffffff", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}
+          >
+            ×
+          </button>
         </div>
       )}
     </main>

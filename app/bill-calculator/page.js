@@ -2,6 +2,9 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { generateBillPdf } from "@/lib/billPdf";
+import { exportReportToPdf, aoaToPdfSheet } from "@/lib/pdfExport";
+import { batchTranslateTable, toBengaliDigits, toBengaliCurrency } from "@/lib/translator";
+import ExportLangModal from "@/lib/ExportLangModal";
 import * as XLSX from "xlsx";
 import { HomeIcon } from "@/lib/icons";
 import TopPageNav from "@/lib/TopPageNav";
@@ -190,7 +193,7 @@ const fmt = (n) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigit
 
 export default function Home() {
   const router = useRouter();
-  const [rows, setRows] = useState(() => getClientCache("purchase_rows", []));
+  const [rows, setRows] = useState([]);
   const [selectedClient, setSelectedClient] = useState("");
   const [clientSearch, setClientSearch] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
@@ -271,6 +274,11 @@ export default function Home() {
   }
 
   useEffect(() => {
+    const cachedRows = getClientCache("purchase_rows");
+    if (cachedRows) {
+      setRows(cachedRows);
+      setLoaded(true);
+    }
     try {
       const savedTypes = localStorage.getItem("bc_client_types");
       if (savedTypes) setClientTypes(JSON.parse(savedTypes));
@@ -311,6 +319,69 @@ export default function Home() {
     const q = clientSearch.toLowerCase().trim();
     return clients.filter((c) => c.toLowerCase().includes(q));
   }, [clients, clientSearch]);
+
+  const [topSheetFilter, setTopSheetFilter] = useState("all"); // 'all' | 'due' | 'advance' | 'settled'
+
+  // All Suppliers Top Sheet Summary
+  const allSuppliersSummary = useMemo(() => {
+    const map = new Map();
+    clients.forEach((name) => {
+      map.set(name, {
+        name,
+        billCount: 0,
+        totalBill: 0,
+        totalPaid: 0,
+        balance: 0,
+        lastDate: "",
+      });
+    });
+
+    rows.forEach((r) => {
+      const name = r.client_name?.trim();
+      if (!name) return;
+      if (!map.has(name)) {
+        map.set(name, { name, billCount: 0, totalBill: 0, totalPaid: 0, balance: 0, lastDate: "" });
+      }
+      const item = map.get(name);
+      const amt = Number(r.amount || 0);
+      if (r.type === "bill") {
+        item.billCount += 1;
+        item.totalBill += amt;
+      } else {
+        item.totalPaid += amt;
+      }
+      if (r.entry_date && (!item.lastDate || r.entry_date > item.lastDate)) {
+        item.lastDate = r.entry_date;
+      }
+    });
+
+    const list = Array.from(map.values()).map((item) => ({
+      ...item,
+      balance: item.totalBill - item.totalPaid,
+    }));
+
+    list.sort((a, b) => b.balance - a.balance || a.name.localeCompare(b.name));
+
+    const grandTotalBill = list.reduce((s, x) => s + x.totalBill, 0);
+    const grandTotalPaid = list.reduce((s, x) => s + x.totalPaid, 0);
+    const grandNetBalance = grandTotalBill - grandTotalPaid;
+    const dueCount = list.filter((x) => x.balance > 0.01).length;
+    const advCount = list.filter((x) => x.balance < -0.01).length;
+    const settledCount = list.filter((x) => Math.abs(x.balance) <= 0.01).length;
+
+    return { list, grandTotalBill, grandTotalPaid, grandNetBalance, dueCount, advCount, settledCount };
+  }, [clients, rows]);
+
+  const filteredTopSheet = useMemo(() => {
+    const q = !selectedClient ? clientSearch.trim().toLowerCase() : "";
+    return allSuppliersSummary.list.filter((item) => {
+      if (q && !item.name.toLowerCase().includes(q)) return false;
+      if (topSheetFilter === "due") return item.balance > 0.01;
+      if (topSheetFilter === "advance") return item.balance < -0.01;
+      if (topSheetFilter === "settled") return Math.abs(item.balance) <= 0.01;
+      return true;
+    });
+  }, [allSuppliersSummary.list, topSheetFilter, clientSearch, selectedClient]);
 
   function handleSelectClient(name) {
     setSelectedClient(name);
@@ -1149,6 +1220,307 @@ export default function Home() {
   }
 
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [allPdfModal, setAllPdfModal] = useState(false);
+  const [allPdfMode, setAllPdfMode] = useState("all"); // 'all' | 'top_sheet'
+  const [allPdfBusy, setAllPdfBusy] = useState(false);
+  const [allPdfProgress, setAllPdfProgress] = useState(0);
+
+  function downloadTopSheetExcel() {
+    if (!filteredTopSheet.length) {
+      alert("No suppliers to export.");
+      return;
+    }
+    const fmtNum = (n) => Number(n || 0).toFixed(2);
+    const totBill = filteredTopSheet.reduce((s, x) => s + x.totalBill, 0);
+    const totPaid = filteredTopSheet.reduce((s, x) => s + x.totalPaid, 0);
+    const totBal = totBill - totPaid;
+
+    const wsData = [
+      ["CHOWDHURY ENGINEERING WORKS"],
+      ["ALL SUPPLIERS TOP SHEET SUMMARY"],
+      [`Statement Date: ${today()} | Suppliers: ${filteredTopSheet.length}`],
+      [],
+      ["SL", "Supplier Name", "Last Activity", "Bills Count", "Total Bill (BDT)", "Total Paid (BDT)", "Remaining Balance (BDT)", "Status"],
+      ...filteredTopSheet.map((item, idx) => [
+        idx + 1,
+        item.name,
+        item.lastDate || "-",
+        item.billCount,
+        fmtNum(item.totalBill),
+        fmtNum(item.totalPaid),
+        fmtNum(Math.abs(item.balance)),
+        item.balance > 0.01 ? "Due" : item.balance < -0.01 ? "Advance" : "Settled",
+      ]),
+      [],
+      ["TOTAL", "", "", filteredTopSheet.reduce((s, x) => s + x.billCount, 0), fmtNum(totBill), fmtNum(totPaid), fmtNum(Math.abs(totBal)), totBal > 0.01 ? "Net Due" : totBal < -0.01 ? "Net Advance" : "Settled"],
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws["!cols"] = [{ wch: 6 }, { wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws, "Suppliers_Top_Sheet");
+    XLSX.writeFile(wb, `All_Suppliers_Top_Sheet_${today()}.xlsx`);
+  }
+
+  async function executeTopSheetPdf(lang = "en") {
+    if (!filteredTopSheet.length) {
+      alert("No suppliers to export.");
+      setAllPdfModal(false);
+      return;
+    }
+    const isBn = lang === "bn";
+    setAllPdfBusy(true);
+    setAllPdfProgress(15);
+    try {
+      const totBill = filteredTopSheet.reduce((s, x) => s + x.totalBill, 0);
+      const totPaid = filteredTopSheet.reduce((s, x) => s + x.totalPaid, 0);
+      const totBal = totBill - totPaid;
+      const totBillsCount = filteredTopSheet.reduce((s, x) => s + x.billCount, 0);
+
+      const headers = isBn
+        ? ["ক্রমিক", "সরবরাহকারীর নাম", "শেষ লেনদেন", "বিল সংখ্যা", "মোট বিল (টাকা)", "মোট পরিশোধ (টাকা)", "অবশিষ্ট ব্যালেন্স (টাকা)", "অবস্থা"]
+        : ["SL", "Supplier Name", "Last Activity", "Bills", "Total Bill (BDT)", "Total Paid (BDT)", "Remaining Balance (BDT)", "Status"];
+
+      let tableRows = filteredTopSheet.map((item, idx) => {
+        const statusStr = item.balance > 0.01 ? (isBn ? "বাকি" : "Due") : item.balance < -0.01 ? (isBn ? "অগ্রিম" : "Advance") : (isBn ? "পরিশোধ" : "Settled");
+        return [
+          isBn ? toBengaliDigits(idx + 1) : idx + 1,
+          item.name,
+          isBn ? toBengaliDigits(item.lastDate || "-") : (item.lastDate || "-"),
+          isBn ? toBengaliDigits(item.billCount) : item.billCount,
+          isBn ? toBengaliCurrency(item.totalBill) : item.totalBill.toFixed(2),
+          isBn ? toBengaliCurrency(item.totalPaid) : item.totalPaid.toFixed(2),
+          isBn ? toBengaliCurrency(Math.abs(item.balance)) : Math.abs(item.balance).toFixed(2),
+          statusStr,
+        ];
+      });
+
+      const summaryRows = [
+        [
+          isBn ? "সর্বমোট" : "TOTAL",
+          "",
+          "",
+          isBn ? toBengaliDigits(totBillsCount) : totBillsCount,
+          isBn ? toBengaliCurrency(totBill) : totBill.toFixed(2),
+          isBn ? toBengaliCurrency(totPaid) : totPaid.toFixed(2),
+          isBn ? toBengaliCurrency(Math.abs(totBal)) : Math.abs(totBal).toFixed(2),
+          totBal > 0.01 ? (isBn ? "মোট বাকি" : "Net Due") : totBal < -0.01 ? (isBn ? "মোট অগ্রিম" : "Net Advance") : (isBn ? "পরিশোধ" : "Settled"),
+        ],
+      ];
+
+      if (isBn) {
+        tableRows = await batchTranslateTable(tableRows, (pct) => setAllPdfProgress(Math.round(15 + pct * 0.75)));
+      }
+      setAllPdfBusy(false);
+      setAllPdfProgress(0);
+      setAllPdfModal(false);
+      await new Promise((r) => setTimeout(r, 30));
+
+      const langTag = isBn ? "_Bangla" : "";
+      await exportReportToPdf({
+        title: isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS",
+        subtitle: isBn ? `সকল সরবরাহকারী টপ শিট (${toBengaliDigits(today())})` : `All Suppliers Top Sheet (${today()})`,
+        filename: `All_Suppliers_Top_Sheet_${today()}${langTag}.pdf`,
+        sheets: [
+          {
+            sheetTitle: isBn ? "সরবরাহকারী ব্যালেন্স সারসংক্ষেপ" : "Suppliers Balance Summary",
+            headers,
+            rows: tableRows,
+            summaryRows,
+            rightAlignCols: [0, 3, 4, 5, 6],
+          },
+        ],
+        lang,
+        orientation: "landscape",
+      });
+    } catch (err) {
+      console.error("Top sheet PDF error:", err);
+      alert("Failed to export Top Sheet PDF.");
+    } finally {
+      setAllPdfBusy(false);
+      setAllPdfProgress(0);
+      setAllPdfModal(false);
+    }
+  }
+
+  // Build All Suppliers sheets cleanly (shared between Excel and PDF)
+  function buildAllSuppliersSheets() {
+    const fmtNum = (n) => Number(n || 0).toFixed(2);
+    const usedSheetNames = new Set();
+    const sheets = [];
+
+    clients.forEach((cName) => {
+      const type = getEntityType(cName);
+      const label = type === "supplier" || type === "client" ? "Supplier" : "Dealer";
+      const upperLabel = type === "supplier" || type === "client" ? "SUPPLIER" : "DEALER";
+
+      let runningBal = 0;
+      const clientRows = rows
+        .filter((r) => r.client_name === cName)
+        .map((r) => {
+          runningBal += r.type === "bill" ? r.amount : -r.amount;
+          return { ...r, balance: runningBal };
+        })
+        .reverse();
+
+      const cTotalBill = clientRows.reduce((s, r) => s + (r.type === "bill" ? r.amount : 0), 0);
+      const cTotalPaid = clientRows.reduce((s, r) => s + (r.type === "payment" ? r.amount : 0), 0);
+      const cBalance = cTotalBill - cTotalPaid;
+
+      const wsData = [
+        ["CHOWDHURY ENGINEERING WORKS"],
+        [`${upperLabel} ACCOUNT STATEMENT`],
+        [],
+        [`${label}:`, cName, "", "Statement Date:", today()],
+        [
+          "Total Bill (BDT):",
+          fmtNum(cTotalBill),
+          "",
+          "Total Paid (BDT):",
+          fmtNum(cTotalPaid),
+          "",
+          "Net Due Balance (BDT):",
+          fmtNum(cBalance),
+        ],
+        [],
+        [
+          "SL",
+          "Date",
+          "Type",
+          "Bill No",
+          "Item / Description",
+          "Weight (KG)",
+          "Rate (BDT)",
+          "Sub-Total (BDT)",
+          "Bill Total (BDT)",
+          "From Bank / Account",
+          "To Bank / Account",
+          "Paid Amount (BDT)",
+          "Running Balance (BDT)",
+          "Note",
+        ],
+      ];
+
+      let sl = 1;
+      clientRows.forEach((r) => {
+        const hasItems = r.type === "bill" && Array.isArray(r.items) && r.items.length > 0;
+        if (hasItems) {
+          r.items.forEach((it) => {
+            wsData.push([
+              sl++,
+              r.entry_date || "",
+              "Bill (Item)",
+              r.bill_no || "-",
+              it.name || "Item",
+              it.quantity !== undefined && it.quantity !== "" ? Number(it.quantity).toFixed(2) : (it.weight != null && it.weight !== "" ? Number(it.weight).toFixed(2) : "-"),
+              it.rate != null && it.rate !== "" ? Number(it.rate).toFixed(2) : "-",
+              it.subtotal != null && it.subtotal !== "" ? fmtNum(it.subtotal) : "-",
+              "-",
+              r.from_bank || "-",
+              r.to_bank || "-",
+              "-",
+              fmtNum(r.balance),
+              r.note || "",
+            ]);
+          });
+        } else {
+          wsData.push([
+            sl++,
+            r.entry_date || "",
+            r.type === "bill" ? "Bill" : "Payment",
+            r.bill_no || "-",
+            "-",
+            r.weight != null ? Number(r.weight).toFixed(2) : "-",
+            "-",
+            "-",
+            r.type === "bill" ? fmtNum(r.amount) : "-",
+            r.from_bank || "-",
+            r.to_bank || "-",
+            r.type === "payment" ? fmtNum(r.amount) : "-",
+            fmtNum(r.balance),
+            r.note || "",
+          ]);
+        }
+      });
+
+      wsData.push([]);
+      wsData.push([
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "TOTAL SUMMARY:",
+        fmtNum(cTotalBill),
+        "",
+        "",
+        fmtNum(cTotalPaid),
+        fmtNum(cBalance),
+        "",
+      ]);
+
+      let cleanSheetName = (cName || "Supplier")
+        .replace(/[:\\/?*\[\]]/g, "_")
+        .trim()
+        .slice(0, 30);
+      if (!cleanSheetName) cleanSheetName = "Sheet";
+      let uniqueName = cleanSheetName;
+      let counter = 1;
+      while (usedSheetNames.has(uniqueName)) {
+        uniqueName = `${cleanSheetName.slice(0, 26)}_${counter++}`;
+      }
+      usedSheetNames.add(uniqueName);
+      sheets.push({ name: uniqueName, cName, wsData });
+    });
+
+    return sheets;
+  }
+
+  async function executeDownloadAllSuppliersPdf(lang = "en") {
+    if (clients.length === 0) {
+      alert("No suppliers available to export.");
+      setAllPdfModal(false);
+      return;
+    }
+    const isBn = lang === "bn";
+    setAllPdfBusy(true);
+    setAllPdfProgress(10);
+    try {
+      const sheets = buildAllSuppliersSheets();
+      const pdfSheets = [];
+      for (let i = 0; i < sheets.length; i++) {
+        let aoa = sheets[i].wsData;
+        if (isBn) {
+          aoa = await batchTranslateTable(aoa, () => {});
+        }
+        setAllPdfProgress(Math.round(15 + ((i + 1) / Math.max(1, sheets.length)) * 75));
+        pdfSheets.push(aoaToPdfSheet(aoa, sheets[i].cName || sheets[i].name, [0, 8, 11, 12], [2, 5, 6, 7, 9, 10, 13]));
+      }
+      setAllPdfBusy(false);
+      setAllPdfProgress(0);
+      setAllPdfModal(false);
+      await new Promise((r) => setTimeout(r, 30));
+
+      const langTag = isBn ? "_Bangla" : "";
+      await exportReportToPdf({
+        title: isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS",
+        subtitle: isBn ? `সকল সরবরাহকারী লেজার (${today()})` : `All Suppliers Ledger (${today()})`,
+        filename: `All_Suppliers_Ledger_${today()}${langTag}.pdf`,
+        sheets: pdfSheets,
+        lang,
+        orientation: "landscape",
+      });
+    } catch (err) {
+      console.error("All suppliers PDF error:", err);
+      alert("Failed to export All Suppliers PDF.");
+    } finally {
+      setAllPdfBusy(false);
+      setAllPdfProgress(0);
+      setAllPdfModal(false);
+    }
+  }
 
   async function downloadPdf() {
     if (!selectedClient) return;
@@ -2014,37 +2386,295 @@ export default function Home() {
           </section>
         </>
       ) : (
-        /* When NO client is selected: Show only guidance prompt with clean icon */
-        <div className="card no-client-prompt">
-          <div style={{ marginBottom: 12, color: "var(--accent)" }}>
-            <UserIcon size={38} />
-          </div>
-          <h3>Please Select a Supplier Above</h3>
-          <p style={{ marginBottom: 16 }}>
-            Select a supplier from the search box above to view details, add bills/payments, and see full transaction history, or click &quot;Add New Supplier&quot;.
-          </p>
-          <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className="btn"
-              style={{ margin: 0, display: "inline-flex", alignItems: "center", gap: 6 }}
-              onClick={() => {
-                setNewClientType("supplier");
-                setShowNewClientModal(true);
+        /* When NO client is selected: Executive KPIs + Clickable All Suppliers Top Sheet */
+        <section style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Summary KPI Cards */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: 12,
+            }}
+          >
+            <div className="card" style={{ padding: "14px 16px", margin: 0 }}>
+              <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
+                Total Suppliers
+              </div>
+              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
+                {allSuppliersSummary.list.length}
+              </div>
+              <div style={{ fontSize: "0.74rem", color: "#64748b", marginTop: 2 }}>
+                {allSuppliersSummary.dueCount} Due · {allSuppliersSummary.advCount} Advance · {allSuppliersSummary.settledCount} Settled
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: "14px 16px", margin: 0 }}>
+              <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
+                Grand Total Bill
+              </div>
+              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#1e293b", marginTop: 4 }}>
+                ৳ {fmt(allSuppliersSummary.grandTotalBill)}
+              </div>
+              <div style={{ fontSize: "0.74rem", color: "#64748b", marginTop: 2 }}>
+                Across all recorded supplier bills
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: "14px 16px", margin: 0 }}>
+              <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
+                Total Paid
+              </div>
+              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#15803d", marginTop: 4 }}>
+                ৳ {fmt(allSuppliersSummary.grandTotalPaid)}
+              </div>
+              <div style={{ fontSize: "0.74rem", color: "#15803d", marginTop: 2 }}>
+                Cumulative supplier payments
+              </div>
+            </div>
+
+            <div
+              className="card"
+              style={{
+                padding: "14px 16px",
+                margin: 0,
+                borderColor: allSuppliersSummary.grandNetBalance > 0.01 ? "#fecaca" : "#bbf7d0",
+                background: allSuppliersSummary.grandNetBalance > 0.01 ? "#fef2f2" : "#f0fdf4",
               }}
             >
-              <PlusIcon /> Add New Supplier
-            </button>
-            <button
-              type="button"
-              className="btn-download-all-excel"
-              onClick={downloadAllDealersData}
-              title="Download full multi-sheet Excel file with all suppliers"
-            >
-              <DownloadIcon size={15} /> Download All Excel
-            </button>
+              <div
+                style={{
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  color: allSuppliersSummary.grandNetBalance > 0.01 ? "#991b1b" : "#166534",
+                  textTransform: "uppercase",
+                }}
+              >
+                {allSuppliersSummary.grandNetBalance > 0.01
+                  ? "Total Remaining Due"
+                  : allSuppliersSummary.grandNetBalance < -0.01
+                    ? "Total Advance Balance"
+                    : "Net Balance (Settled)"}
+              </div>
+              <div
+                style={{
+                  fontSize: "1.45rem",
+                  fontWeight: 800,
+                  color: allSuppliersSummary.grandNetBalance > 0.01 ? "#b91c1c" : "#15803d",
+                  marginTop: 4,
+                }}
+              >
+                ৳ {fmt(Math.abs(allSuppliersSummary.grandNetBalance))}
+              </div>
+              <div style={{ fontSize: "0.74rem", color: "#475569", marginTop: 2 }}>
+                Click any supplier row below to open ledger
+              </div>
+            </div>
           </div>
-        </div>
+
+          {/* All Suppliers Top Sheet Card */}
+          <div className="card" style={{ margin: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 10,
+                marginBottom: 12,
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 800, color: "#0f172a" }}>
+                  All Suppliers Top Sheet ({filteredTopSheet.length})
+                </h3>
+                <p style={{ margin: "2px 0 0", fontSize: "0.78rem", color: "#64748b" }}>
+                  Overview of total bills, total paid, and remaining balance. Click a supplier to open full ledger.
+                </p>
+              </div>
+
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                {[
+                  { key: "all", label: `All (${allSuppliersSummary.list.length})` },
+                  { key: "due", label: `Due (${allSuppliersSummary.dueCount})` },
+                  { key: "advance", label: `Advance (${allSuppliersSummary.advCount})` },
+                  { key: "settled", label: `Settled (${allSuppliersSummary.settledCount})` },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => setTopSheetFilter(f.key)}
+                    style={{
+                      padding: "5px 11px",
+                      borderRadius: 999,
+                      border: "1px solid",
+                      borderColor: topSheetFilter === f.key ? "#991b1b" : "#cbd5e1",
+                      background: topSheetFilter === f.key ? "#991b1b" : "#ffffff",
+                      color: topSheetFilter === f.key ? "#ffffff" : "#334155",
+                      fontSize: "0.76rem",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              <button
+                type="button"
+                className="btn"
+                style={{ margin: 0, display: "inline-flex", alignItems: "center", gap: 6 }}
+                onClick={() => {
+                  setNewClientType("supplier");
+                  setShowNewClientModal(true);
+                }}
+              >
+                <PlusIcon /> Add New Supplier
+              </button>
+              <button
+                type="button"
+                className="btn-download-all-excel"
+                onClick={downloadTopSheetExcel}
+                title="Download Top Sheet Summary as Excel"
+              >
+                <DownloadIcon size={15} /> Top Sheet Excel
+              </button>
+              <button
+                type="button"
+                className="btn-download-all-excel"
+                onClick={() => {
+                  setAllPdfMode("top_sheet");
+                  setAllPdfModal(true);
+                }}
+                style={{ background: "#334155", borderColor: "#334155" }}
+                title="Download Top Sheet Summary as PDF (English / Bangla)"
+              >
+                <FileTextIcon size={15} /> Top Sheet PDF
+              </button>
+              <button
+                type="button"
+                className="btn-download-all-excel"
+                onClick={downloadAllDealersData}
+                title="Download full multi-sheet Excel file with all suppliers"
+              >
+                <DownloadIcon size={15} /> Download All Excel
+              </button>
+              <button
+                type="button"
+                className="btn-download-all-excel"
+                onClick={() => {
+                  setAllPdfMode("all");
+                  setAllPdfModal(true);
+                }}
+                style={{ background: "#1e293b", borderColor: "#1e293b" }}
+                title="Download formatted multi-page PDF with all suppliers"
+              >
+                <FileTextIcon size={15} /> Download All PDF
+              </button>
+            </div>
+
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: "48px" }}>SL</th>
+                    <th style={{ minWidth: "180px" }}>Supplier Name</th>
+                    <th style={{ width: "110px" }}>Last Activity</th>
+                    <th className="num" style={{ width: "80px" }}>Bills</th>
+                    <th className="num" style={{ width: "135px" }}>Total Bill (৳)</th>
+                    <th className="num" style={{ width: "135px" }}>Total Paid (৳)</th>
+                    <th className="num" style={{ width: "155px" }}>Remaining Balance (৳)</th>
+                    <th style={{ width: "105px", textAlign: "center" }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTopSheet.map((item, idx) => {
+                    const isDue = item.balance > 0.01;
+                    const isAdv = item.balance < -0.01;
+                    return (
+                      <tr
+                        key={item.name}
+                        onClick={() => handleSelectClient(item.name)}
+                        style={{ cursor: "pointer" }}
+                        title={`Open ${item.name} ledger`}
+                      >
+                        <td>{idx + 1}</td>
+                        <td style={{ fontWeight: 700, color: "#991b1b" }}>{item.name}</td>
+                        <td style={{ color: "#475569", fontSize: "0.84rem" }}>{item.lastDate || "—"}</td>
+                        <td className="num">{item.billCount}</td>
+                        <td className="num">{fmt(item.totalBill)}</td>
+                        <td className="num" style={{ color: "#15803d", fontWeight: 600 }}>{fmt(item.totalPaid)}</td>
+                        <td
+                          className="num"
+                          style={{
+                            fontWeight: 800,
+                            color: isDue ? "#b91c1c" : isAdv ? "#15803d" : "#475569",
+                          }}
+                        >
+                          {fmt(Math.abs(item.balance))}
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "2px 9px",
+                              borderRadius: 999,
+                              fontSize: "0.74rem",
+                              fontWeight: 700,
+                              background: isDue ? "#fee2e2" : isAdv ? "#dcfce7" : "#f1f5f9",
+                              color: isDue ? "#b91c1c" : isAdv ? "#15803d" : "#475569",
+                            }}
+                          >
+                            {isDue ? "Due" : isAdv ? "Advance" : "Settled"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredTopSheet.length === 0 && (
+                    <tr>
+                      <td colSpan={8} style={{ textAlign: "center", padding: "24px", color: "#64748b" }}>
+                        No suppliers match the current filter.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                {filteredTopSheet.length > 0 && (
+                  <tfoot>
+                    <tr style={{ background: "#f8fafc", fontWeight: 800 }}>
+                      <td colSpan={3}>GRAND TOTAL ({filteredTopSheet.length} Suppliers)</td>
+                      <td className="num">{filteredTopSheet.reduce((s, x) => s + x.billCount, 0)}</td>
+                      <td className="num">৳ {fmt(filteredTopSheet.reduce((s, x) => s + x.totalBill, 0))}</td>
+                      <td className="num" style={{ color: "#15803d" }}>
+                        ৳ {fmt(filteredTopSheet.reduce((s, x) => s + x.totalPaid, 0))}
+                      </td>
+                      <td
+                        className="num"
+                        style={{
+                          color:
+                            filteredTopSheet.reduce((s, x) => s + x.balance, 0) > 0.01
+                              ? "#b91c1c"
+                              : "#15803d",
+                        }}
+                      >
+                        ৳ {fmt(Math.abs(filteredTopSheet.reduce((s, x) => s + x.balance, 0)))}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        {filteredTopSheet.reduce((s, x) => s + x.balance, 0) > 0.01
+                          ? "Net Due"
+                          : filteredTopSheet.reduce((s, x) => s + x.balance, 0) < -0.01
+                            ? "Net Adv"
+                            : "Settled"}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        </section>
       )}
 
       {/* Transaction Entry Detail & Edit Modal */}
@@ -2742,6 +3372,16 @@ export default function Home() {
           </div>
         </div>
       )}
+      <ExportLangModal
+        isOpen={allPdfModal}
+        title={allPdfMode === "top_sheet" ? "Download Suppliers Top Sheet PDF" : "Download All Suppliers PDF"}
+        subtitle={`Total Suppliers: ${allPdfMode === "top_sheet" ? filteredTopSheet.length : clients.length}`}
+        format="pdf"
+        busy={allPdfBusy}
+        progress={allPdfProgress}
+        onClose={() => setAllPdfModal(false)}
+        onSelect={allPdfMode === "top_sheet" ? executeTopSheetPdf : executeDownloadAllSuppliersPdf}
+      />
     </main>
   );
 }

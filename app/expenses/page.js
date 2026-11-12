@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import TopPageNav from "@/lib/TopPageNav";
 import * as XLSX from "xlsx-js-style";
+import { exportReportToPdf, aoaToPdfSheet } from "@/lib/pdfExport";
 import {
   batchTranslateTable,
   toBengaliDigits,
@@ -270,10 +271,10 @@ const defaultForm = () => ({
 
 export default function ExpensesPage() {
   const router = useRouter();
-  const [expenses, setExpenses] = useState(() => getClientCache("expenses_list", []));
-  const [salesBills, setSalesBills] = useState(() => getClientCache("sales_bills", []));
-  const [clients, setClients] = useState(() => getClientCache("expenses_clients", []));
-  const [initialLoading, setInitialLoading] = useState(() => !getClientCache("expenses_list"));
+  const [expenses, setExpenses] = useState([]);
+  const [salesBills, setSalesBills] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [form, setForm] = useState(defaultForm());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -293,11 +294,12 @@ export default function ExpensesPage() {
   const [importPreview, setImportPreview] = useState(null);
   const [importBusy, setImportBusy] = useState(false);
 
-  // Excel Language Modal States
+  // Excel / PDF Language Modal States
   const [excelLangModal, setExcelLangModal] = useState({
     isOpen: false,
-    type: "expenses", // 'expenses' | 'salary'
+    type: "expenses", // 'expenses' | 'salary' | 'comparison'
     title: "Download Expense Report",
+    format: "xlsx", // 'xlsx' | 'pdf'
   });
   const [translatingExcel, setTranslatingExcel] = useState(false);
   const [translatingProgress, setTranslatingProgress] = useState(0);
@@ -325,8 +327,49 @@ export default function ExpensesPage() {
   const range = useMemo(() => getRange(mode, ref), [mode, ref]);
   const [catFilter, setCatFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [mobileVisibleCount, setMobileVisibleCount] = useState(24);
   const [analysisTab, setAnalysisTab] = useState("pie"); // 'pie' | 'compare'
   const [hoveredCat, setHoveredCat] = useState(null);
+  const expenseDesktopWrapRef = useRef(null);
+  const expenseDesktopSentinelRef = useRef(null);
+  const expenseMobileSentinelRef = useRef(null);
+
+  useEffect(() => {
+    setMobileVisibleCount(24);
+  }, [mode, ref, catFilter, search]);
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const observers = [];
+
+    if (expenseDesktopSentinelRef.current && expenseDesktopWrapRef.current) {
+      const obsDesktop = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting) {
+            setMobileVisibleCount((c) => c + 24);
+          }
+        },
+        { root: expenseDesktopWrapRef.current, rootMargin: "140px" }
+      );
+      obsDesktop.observe(expenseDesktopSentinelRef.current);
+      observers.push(obsDesktop);
+    }
+
+    if (expenseMobileSentinelRef.current) {
+      const obsMobile = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting) {
+            setMobileVisibleCount((c) => c + 24);
+          }
+        },
+        { rootMargin: "200px" }
+      );
+      obsMobile.observe(expenseMobileSentinelRef.current);
+      observers.push(obsMobile);
+    }
+
+    return () => observers.forEach((o) => o.disconnect());
+  });
 
   const kpiMode = mode;
   const kpiRef = ref;
@@ -546,6 +589,19 @@ export default function ExpensesPage() {
   }
 
   useEffect(() => {
+    const cachedExpenses = getClientCache("expenses_list");
+    const cachedSalesBills = getClientCache("sales_bills");
+    const cachedClients = getClientCache("expenses_clients");
+    if (cachedExpenses) {
+      setExpenses(cachedExpenses);
+      setInitialLoading(false);
+    }
+    if (cachedSalesBills) {
+      setSalesBills(cachedSalesBills);
+    }
+    if (cachedClients) {
+      setClients(cachedClients);
+    }
     load();
     loadClients();
     loadSalesBills();
@@ -1239,6 +1295,15 @@ export default function ExpensesPage() {
     return Array.from(m.entries()).sort((a, b) => b[0].localeCompare(a[0]));
   }, [filtered]);
 
+  const visibleByDay = useMemo(() => {
+    const m = new Map();
+    filtered.slice(0, mobileVisibleCount).forEach((x) => {
+      if (!m.has(x.expense_date)) m.set(x.expense_date, []);
+      m.get(x.expense_date).push(x);
+    });
+    return Array.from(m.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [filtered, mobileVisibleCount]);
+
   const activeDays = byDay.filter(([_, list]) => list.some((x) => !isDepositCategory(x.category))).length || byDay.length;
 
   const topCat = useMemo(() => {
@@ -1333,7 +1398,7 @@ export default function ExpensesPage() {
     };
   }, [salesBills, expenses, range]);
 
-  function openExcelLanguageModal(type = "expenses", title = "Download Expense Report") {
+  function openExcelLanguageModal(type = "expenses", title = "Download Expense Report", format = "xlsx") {
     if (type === "expenses" && catFilter === "Salary") {
       type = "salary";
       title = "Download Salary Report";
@@ -1342,12 +1407,14 @@ export default function ExpensesPage() {
       isOpen: true,
       type,
       title: title || (type === "salary" ? "Download Salary Report" : "Download Expense Report"),
+      format: format || "xlsx",
     });
   }
 
-  async function executeExportExcel(lang = "en") {
+  async function executeExportExcel(lang = "en", format = excelLangModal.format || "xlsx") {
     const isBn = lang === "bn";
-    if (isBn) {
+    const isPdf = format === "pdf";
+    if (isBn || isPdf) {
       setTranslatingExcel(true);
       setTranslatingProgress(5);
     }
@@ -1467,6 +1534,8 @@ export default function ExpensesPage() {
 
       XLSX.utils.book_append_sheet(wb, ws, isBn ? "সারসংক্ষেপ ও সব খরচ" : "Summary & All");
 
+      const pdfSheets = isPdf ? [aoaToPdfSheet(rows, isBn ? "সারসংক্ষেপ ও সব খরচ" : "Summary & All", [5])] : [];
+
       // Group by Category to generate separate sheets for each category
       const categoryMap = new Map();
       filtered.forEach((x) => {
@@ -1532,21 +1601,42 @@ export default function ExpensesPage() {
         }
 
         XLSX.utils.book_append_sheet(wb, wsCat, finalSheetName);
+        if (isPdf) {
+          pdfSheets.push(aoaToPdfSheet(catRows, finalSheetName, [5]));
+        }
       }
 
       const langTag = isBn ? "_Bangla" : "";
-      XLSX.writeFile(wb, `CEW_Expenses_${mode}_${range.label.replace(/[^a-zA-Z0-9]+/g, "_")}${langTag}.xlsx`);
+      const safeRangeLabel = range.label.replace(/[^a-zA-Z0-9]+/g, "_");
+      setTranslatingExcel(false);
+      setTranslatingProgress(0);
+      setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+      await new Promise((r) => setTimeout(r, 30));
+
+      if (isPdf) {
+        await exportReportToPdf({
+          title: isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS",
+          subtitle: isBn ? `খরচ ও তহবিল স্থানান্তর রিপোর্ট (${translatePeriodLabel(range.label)})` : `Expense & Fund Transfer Report (${range.label})`,
+          filename: `CEW_Expenses_${mode}_${safeRangeLabel}${langTag}.pdf`,
+          sheets: pdfSheets,
+          lang,
+          orientation: "landscape",
+        });
+      } else {
+        XLSX.writeFile(wb, `CEW_Expenses_${mode}_${safeRangeLabel}${langTag}.xlsx`);
+      }
     } catch (err) {
-      console.error("Export expense Excel error:", err);
-      alert("Failed to export Excel. Please try again.");
+      console.error("Export expense report error:", err);
+      alert(`Failed to export ${isPdf ? "PDF" : "Excel"}. Please try again.`);
     } finally {
       setTranslatingExcel(false);
+      setTranslatingProgress(0);
       setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
     }
   }
 
-  // Download Exact Period Comparison Table vs Previous Period as Excel (.xlsx)
-  async function executeExportComparisonExcel(lang = "en") {
+  // Download Exact Period Comparison Table vs Previous Period as Excel (.xlsx) or PDF (.pdf)
+  async function executeExportComparisonExcel(lang = "en", format = excelLangModal.format || "xlsx") {
     if (!comparisonData || comparisonData.length === 0) {
       alert("No comparison data available for this period to export.");
       setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
@@ -1554,7 +1644,8 @@ export default function ExpensesPage() {
     }
 
     const isBn = lang === "bn";
-    if (isBn) {
+    const isPdf = format === "pdf";
+    if (isBn || isPdf) {
       setTranslatingExcel(true);
       setTranslatingProgress(20);
     }
@@ -1654,18 +1745,35 @@ export default function ExpensesPage() {
 
       const langTag = isBn ? "_Bangla" : "";
       const safeLabel = range.label.replace(/[^a-zA-Z0-9]+/g, "_");
-      XLSX.writeFile(wb, `CEW_Expense_Comparison_${mode}_${safeLabel}${langTag}.xlsx`);
+      setTranslatingExcel(false);
+      setTranslatingProgress(0);
+      setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+      await new Promise((r) => setTimeout(r, 30));
+
+      if (isPdf) {
+        await exportReportToPdf({
+          title: headerCompany,
+          subtitle: reportTitle,
+          filename: `CEW_Expense_Comparison_${mode}_${safeLabel}${langTag}.pdf`,
+          sheets: [aoaToPdfSheet(rows, sheetName, [1, 2, 3, 4])],
+          lang,
+          orientation: "landscape",
+        });
+      } else {
+        XLSX.writeFile(wb, `CEW_Expense_Comparison_${mode}_${safeLabel}${langTag}.xlsx`);
+      }
     } catch (err) {
-      console.error("Export comparison Excel error:", err);
+      console.error("Export comparison report error:", err);
       alert("Failed to export comparison table. Please try again.");
     } finally {
       setTranslatingExcel(false);
+      setTranslatingProgress(0);
       setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
     }
   }
 
-  // Comprehensive Multi-Sheet Salary Excel Report
-  async function executeExportSalaryExcel(lang = "en") {
+  // Comprehensive Multi-Sheet Salary Excel / PDF Report
+  async function executeExportSalaryExcel(lang = "en", format = excelLangModal.format || "xlsx") {
     let salaryRows = filtered.filter((x) => x.category === "Salary");
     if (!salaryRows.length) {
       salaryRows = expenses.filter((x) => x.category === "Salary");
@@ -1679,7 +1787,8 @@ export default function ExpensesPage() {
     }
 
     const isBn = lang === "bn";
-    if (isBn) {
+    const isPdf = format === "pdf";
+    if (isBn || isPdf) {
       setTranslatingExcel(true);
       setTranslatingProgress(5);
     }
@@ -1949,12 +2058,34 @@ export default function ExpensesPage() {
       XLSX.utils.book_append_sheet(wb, wsDate, isBn ? "তারিখ ভিত্তিক" : "Date-wise Breakdown");
 
       const langTag = isBn ? "_Bangla" : "";
-      XLSX.writeFile(wb, `CEW_Salary_Report_${today().replace(/-/g, "")}${langTag}.xlsx`);
+      setTranslatingExcel(false);
+      setTranslatingProgress(0);
+      setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+      await new Promise((r) => setTimeout(r, 30));
+
+      if (isPdf) {
+        await exportReportToPdf({
+          title: headerCompany,
+          subtitle: isBn ? `বেতন ও স্টাফ রিপোর্ট (${periodLabel})` : `Staff & Salary Report (${range.label})`,
+          filename: `CEW_Salary_Report_${today().replace(/-/g, "")}${langTag}.pdf`,
+          sheets: [
+            aoaToPdfSheet(txnSheetRows, isBn ? "বেতন লেনদেন" : "Salary Transactions", [8], [2, 6, 7, 9]),
+            aoaToPdfSheet(monthSheetRows, isBn ? "মাস ভিত্তিক" : "Month-wise Breakdown", [5]),
+            aoaToPdfSheet(empSheetRows, isBn ? "কর্মচারী বিবরণ" : "Employee Summary", [2, 5]),
+            aoaToPdfSheet(dateSheetRows, isBn ? "তারিখ ভিত্তিক" : "Date-wise Breakdown", [3, 5]),
+          ],
+          lang,
+          orientation: "landscape",
+        });
+      } else {
+        XLSX.writeFile(wb, `CEW_Salary_Report_${today().replace(/-/g, "")}${langTag}.xlsx`);
+      }
     } catch (err) {
-      console.error("Export salary Excel error:", err);
-      alert("Failed to export Salary Excel. Please try again.");
+      console.error("Export salary report error:", err);
+      alert(`Failed to export Salary ${isPdf ? "PDF" : "Excel"}. Please try again.`);
     } finally {
       setTranslatingExcel(false);
+      setTranslatingProgress(0);
       setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
     }
   }
@@ -2800,45 +2931,93 @@ export default function ExpensesPage() {
               <FileTextIcon size={14} /> Sample Template
             </button>
             {catFilter === "Salary" ? (
-              <button
-                type="button"
-                className="be-nav-btn"
-                onClick={() => openExcelLanguageModal("salary", `Staff / Salary Report`)}
-                disabled={!filtered.length}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  background: "#991b1b",
-                  color: "#ffffff",
-                  borderColor: "#991b1b",
-                  fontWeight: 700,
-                }}
-                title="Download comprehensive multi-sheet Staff Report (Date-wise, Month-wise, Employee breakdown)"
-              >
-                <FileTextIcon size={14} /> Export {catFilter} Report
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="be-nav-btn"
+                  onClick={() => openExcelLanguageModal("salary", `Staff / Salary Report`, "xlsx")}
+                  disabled={!filtered.length}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "#991b1b",
+                    color: "#ffffff",
+                    borderColor: "#991b1b",
+                    fontWeight: 700,
+                  }}
+                  title="Download comprehensive multi-sheet Staff Excel Report"
+                >
+                  <FileTextIcon size={14} /> Export {catFilter} Excel
+                </button>
+                <button
+                  type="button"
+                  className="be-nav-btn"
+                  onClick={() => openExcelLanguageModal("salary", `Staff / Salary PDF Report`, "pdf")}
+                  disabled={!filtered.length}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "#1e293b",
+                    color: "#ffffff",
+                    borderColor: "#1e293b",
+                    fontWeight: 700,
+                  }}
+                  title="Download comprehensive multi-sheet Staff PDF Report"
+                >
+                  <FileTextIcon size={14} /> Export {catFilter} PDF
+                </button>
+              </>
             ) : (
               <>
                 <button
                   type="button"
                   className="be-nav-btn"
-                  onClick={() => openExcelLanguageModal("expenses", "Expense & Fund Transfer Report")}
+                  onClick={() => openExcelLanguageModal("expenses", "Expense & Fund Transfer Report", "xlsx")}
                   disabled={!filtered.length}
                   style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                 >
                   <FileTextIcon size={14} /> Export Excel
                 </button>
+                <button
+                  type="button"
+                  className="be-nav-btn"
+                  onClick={() => openExcelLanguageModal("expenses", "Expense & Fund Transfer PDF Report", "pdf")}
+                  disabled={!filtered.length}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "#1e293b",
+                    color: "#ffffff",
+                    borderColor: "#1e293b",
+                    fontWeight: 700,
+                  }}
+                >
+                  <FileTextIcon size={14} /> Download PDF
+                </button>
                 {expenses.some((x) => x.category === "Salary") && (
-                  <button
-                    type="button"
-                    className="be-nav-btn"
-                    onClick={() => openExcelLanguageModal("salary", "Staff / Salary Report")}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                    title="Export multi-sheet Staff breakdown report for all salary payments"
-                  >
-                    <FileTextIcon size={14} /> Staff Report
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="be-nav-btn"
+                      onClick={() => openExcelLanguageModal("salary", "Staff / Salary Report", "xlsx")}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                      title="Export multi-sheet Staff breakdown report for all salary payments"
+                    >
+                      <FileTextIcon size={14} /> Staff Excel
+                    </button>
+                    <button
+                      type="button"
+                      className="be-nav-btn"
+                      onClick={() => openExcelLanguageModal("salary", "Staff / Salary PDF Report", "pdf")}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                      title="Download Staff breakdown PDF report"
+                    >
+                      <FileTextIcon size={14} /> Staff PDF
+                    </button>
+                  </>
                 )}
               </>
             )}
@@ -2911,25 +3090,46 @@ export default function ExpensesPage() {
             {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
           </select>
           {(catFilter === "Salary" || catFilter === "Overtime") && (
-            <button
-              type="button"
-              className="be-nav-btn"
-              onClick={() => openExcelLanguageModal("salary", `${catFilter} Report`)}
-              disabled={!filtered.length}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                background: "#991b1b",
-                color: "#ffffff",
-                borderColor: "#991b1b",
-                fontWeight: 700,
-                fontSize: "0.82rem",
-              }}
-              title={`Download ${catFilter} Breakdown Excel file`}
-            >
-              <FileTextIcon size={14} /> Download {catFilter} Report (Excel)
-            </button>
+            <>
+              <button
+                type="button"
+                className="be-nav-btn"
+                onClick={() => openExcelLanguageModal("salary", `${catFilter} Report`, "xlsx")}
+                disabled={!filtered.length}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "#991b1b",
+                  color: "#ffffff",
+                  borderColor: "#991b1b",
+                  fontWeight: 700,
+                  fontSize: "0.82rem",
+                }}
+                title={`Download ${catFilter} Breakdown Excel file`}
+              >
+                <FileTextIcon size={14} /> Download {catFilter} Excel
+              </button>
+              <button
+                type="button"
+                className="be-nav-btn"
+                onClick={() => openExcelLanguageModal("salary", `${catFilter} PDF Report`, "pdf")}
+                disabled={!filtered.length}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "#1e293b",
+                  color: "#ffffff",
+                  borderColor: "#1e293b",
+                  fontWeight: 700,
+                  fontSize: "0.82rem",
+                }}
+                title={`Download ${catFilter} Breakdown PDF file`}
+              >
+                <FileTextIcon size={14} /> Download {catFilter} PDF
+              </button>
+            </>
           )}
         </div>
 
@@ -2947,14 +3147,24 @@ export default function ExpensesPage() {
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
               <FileTextIcon size={16} /> {catFilter} Filter Active ({filtered.length} entries • Total: ৳ {fmt(total)}): Excel export includes (1) Date-wise total, (2) Month-wise total, (3) Employee summary, and (4) Payment methods.
             </span>
-            <button
-              type="button"
-              className="be-btn be-btn-primary"
-              style={{ padding: "5px 14px", fontSize: "0.78rem", borderRadius: 7 }}
-              onClick={() => openExcelLanguageModal("salary", `${catFilter} Report`)}
-            >
-              Export {catFilter} Excel
-            </button>
+            <div style={{ display: "inline-flex", gap: 6 }}>
+              <button
+                type="button"
+                className="be-btn be-btn-primary"
+                style={{ padding: "5px 14px", fontSize: "0.78rem", borderRadius: 7 }}
+                onClick={() => openExcelLanguageModal("salary", `${catFilter} Report`, "xlsx")}
+              >
+                Export {catFilter} Excel
+              </button>
+              <button
+                type="button"
+                className="be-nav-btn"
+                style={{ padding: "5px 14px", fontSize: "0.78rem", borderRadius: 7, background: "#1e293b", color: "#fff", borderColor: "#1e293b" }}
+                onClick={() => openExcelLanguageModal("salary", `${catFilter} PDF Report`, "pdf")}
+              >
+                Export {catFilter} PDF
+              </button>
+            </div>
           </div>
         )}
 
@@ -3186,28 +3396,46 @@ export default function ExpensesPage() {
                   <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "#1e3a8a" }}>
                     📊 Detailed Category Comparison ({range.label} vs {prevPeriodData?.range?.label || "Previous Period"})
                   </div>
-                  <button
-                    type="button"
-                    className="be-nav-btn"
-                    onClick={() => openExcelLanguageModal("comparison", "Expense Period Comparison Report")}
-                    disabled={comparisonData.length === 0}
-                    style={{
-                      fontSize: "0.78rem",
-                      padding: "5px 12px",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      background: "#2563eb",
-                      color: "#ffffff",
-                      borderColor: "#2563eb",
-                      fontWeight: 600,
-                      borderRadius: 6,
-                      boxShadow: "0 1px 2px rgba(37,99,235,0.2)",
-                    }}
-                    title="Download exact Period Comparison table as Excel (.xlsx)"
-                  >
-                    <FileTextIcon size={14} /> Download Comparison Table (.xlsx)
-                  </button>
+                  <div style={{ display: "inline-flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      className="be-nav-btn"
+                      onClick={() => openExcelLanguageModal("comparison", "Expense Period Comparison Report", "xlsx")}
+                      disabled={comparisonData.length === 0}
+                      style={{
+                        fontSize: "0.78rem",
+                        padding: "5px 12px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        background: "#2563eb",
+                        color: "#ffffff",
+                        borderColor: "#2563eb",
+                        fontWeight: 700,
+                      }}
+                    >
+                      <FileTextIcon size={13} /> Export Comparison Excel
+                    </button>
+                    <button
+                      type="button"
+                      className="be-nav-btn"
+                      onClick={() => openExcelLanguageModal("comparison", "Expense Period Comparison PDF", "pdf")}
+                      disabled={comparisonData.length === 0}
+                      style={{
+                        fontSize: "0.78rem",
+                        padding: "5px 12px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        background: "#1e293b",
+                        color: "#ffffff",
+                        borderColor: "#1e293b",
+                        fontWeight: 700,
+                      }}
+                    >
+                      <FileTextIcon size={13} /> Export Comparison PDF
+                    </button>
+                  </div>
                 </div>
 
                 <table className="ex-comp-table">
@@ -3307,7 +3535,7 @@ export default function ExpensesPage() {
           </div>
         )}
 
-        <div className="be-ledger-table-wrap">
+        <div className="be-ledger-table-wrap be-expense-desktop-table" ref={expenseDesktopWrapRef}>
           <table className="be-ledger-table">
             <thead>
               <tr>
@@ -3324,7 +3552,7 @@ export default function ExpensesPage() {
               {filtered.length === 0 && (
                 <tr><td colSpan={7} className="ex-empty">No expenses found for this period.</td></tr>
               )}
-              {byDay.map(([day, list]) => (
+              {visibleByDay.map(([day, list]) => (
                 <DayGroup
                   key={day}
                   day={day}
@@ -3338,6 +3566,20 @@ export default function ExpensesPage() {
                   showHeader={mode !== "day"}
                 />
               ))}
+              {filtered.length > mobileVisibleCount && (
+                <tr ref={expenseDesktopSentinelRef}>
+                  <td colSpan={7} style={{ textAlign: "center", padding: "12px", color: "#64748b", fontSize: "0.78rem", fontWeight: 600 }}>
+                    Showing {Math.min(mobileVisibleCount, filtered.length)} of {filtered.length} entries — scroll down to load more{" "}
+                    <button
+                      type="button"
+                      onClick={() => setMobileVisibleCount(filtered.length)}
+                      style={{ marginLeft: 8, background: "transparent", border: "none", color: "#2563eb", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}
+                    >
+                      (Load All)
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
             {filtered.length > 0 && (
               <tfoot className="ex-tfoot">
@@ -3361,6 +3603,137 @@ export default function ExpensesPage() {
               </tfoot>
             )}
           </table>
+        </div>
+
+        {/* Mobile Phone Card View for Expenses (<= 768px, matches Sales card view) */}
+        <div className="be-mobile-invoices-list">
+          {filtered.length === 0 ? (
+            <div className="be-mobile-inv-empty">
+              No expenses found for this period.
+            </div>
+          ) : (
+            <>
+              {filtered.slice(0, mobileVisibleCount).map((ex, idx) => {
+                const catLower = String(ex.category || "").toLowerCase();
+                const isDeposit = catLower.includes("deposit") || catLower.includes("transfer");
+                const bankInfo = [ex.payment_method, ex.from_bank && ex.to_bank ? `${ex.from_bank} → ${ex.to_bank}` : ex.from_bank || ex.to_bank]
+                  .filter(Boolean)
+                  .join(" • ");
+
+                return (
+                  <div
+                    key={`mex-${ex.id}`}
+                    className="be-mobile-inv-card"
+                    onClick={() => {
+                      setSelectedExpenseForModal(ex);
+                      setIsEditingModal(false);
+                      setEditModalData(null);
+                      setModalErr("");
+                    }}
+                  >
+                    <div className="be-mobile-inv-top">
+                      <div className="be-mobile-inv-id">
+                        <span className="be-mobile-inv-sl">#{idx + 1}</span>
+                        <span
+                          className="be-mobile-inv-opening"
+                          style={
+                            isDeposit
+                              ? { background: "#dcfce7", color: "#15803d", borderColor: "#bbf7d0" }
+                              : { background: "#f1f5f9", color: "#334155", borderColor: "#cbd5e1" }
+                          }
+                        >
+                          {ex.category || "Expense"}
+                        </span>
+                      </div>
+                      <span className="be-mobile-inv-date">{ex.expense_date || "—"}</span>
+                    </div>
+
+                    <div className="be-mobile-inv-customer">
+                      <div className="be-mobile-inv-cname">{ex.title || "—"}</div>
+                      <div className="be-mobile-inv-cmeta">
+                        {ex.paid_to && <span>To: <strong>{ex.paid_to}</strong></span>}
+                        {bankInfo && <span>{bankInfo}</span>}
+                      </div>
+                      {ex.note && (
+                        <div className="be-mobile-inv-note" style={{ marginTop: 4 }}>
+                          &quot;{ex.note}&quot;
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="be-mobile-inv-footer" style={{ marginTop: 6 }}>
+                      <strong style={{ fontSize: "0.95rem", color: isDeposit ? "#15803d" : "#0f172a" }}>
+                        ৳ {fmt(ex.amount)}
+                      </strong>
+                      <span className="be-mobile-inv-tap">Tap for Details / Edit →</span>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filtered.length > mobileVisibleCount && (
+                <div className="be-mobile-load-more-row" ref={expenseMobileSentinelRef}>
+                  <button
+                    type="button"
+                    className="be-mobile-load-more-btn"
+                    onClick={() => setMobileVisibleCount((c) => c + 24)}
+                  >
+                    Show 24 More ({filtered.length - mobileVisibleCount} left)
+                  </button>
+                  <button
+                    type="button"
+                    className="be-mobile-load-all-btn"
+                    onClick={() => setMobileVisibleCount(filtered.length)}
+                  >
+                    Show All
+                  </button>
+                </div>
+              )}
+
+              {/* Sticky Bottom Summary Bar (Reflects Active Period, Category & Search Filters) */}
+              <div className="be-mobile-inv-summary be-mobile-inv-summary-sticky">
+                <div className="be-mobile-inv-summary-top">
+                  <span>
+                    {mode === "all" && catFilter === "all" && !search.trim()
+                      ? "Overall Summary"
+                      : `Filtered: ${[
+                          mode !== "all" ? range.label : null,
+                          catFilter !== "all" ? catFilter : null,
+                          search.trim() ? `"${search.trim()}"` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" • ")}`}
+                  </span>
+                  <span className="be-mobile-inv-count">
+                    Showing {Math.min(mobileVisibleCount, filtered.length)} of {filtered.length}
+                  </span>
+                </div>
+                <div
+                  className="be-mobile-inv-summary-grid"
+                  style={
+                    actualExpenses.length > 0 && totalDeposits > 0
+                      ? undefined
+                      : { gridTemplateColumns: "1fr" }
+                  }
+                >
+                  {(actualExpenses.length > 0 || totalDeposits === 0) && (
+                    <div>
+                      <small>
+                        {catFilter !== "all" ? `${catFilter} (${actualExpenses.length})` : `Actual Expenses (${actualExpenses.length})`}
+                      </small>
+                      <strong>৳ {fmt(totalActualExpense)}</strong>
+                    </div>
+                  )}
+                  {totalDeposits > 0 && (
+                    <div>
+                      <small>Bank Deposits ({depositTransfers.length})</small>
+                      <strong style={{ color: "#15803d" }}>৳ {fmt(totalDeposits)}</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </section>
 
@@ -4188,7 +4561,7 @@ export default function ExpensesPage() {
             ) : (
               <>
                 <p style={{ fontSize: "0.85rem", color: "#475569", margin: "10px 0 16px" }}>
-                  Choose your preferred language format for this Excel (.xlsx) workbook export:
+                  Choose your preferred language format for this {excelLangModal.format === "pdf" ? "PDF (.pdf) document" : "Excel (.xlsx) workbook"} export:
                 </p>
 
                 <div className="excel-lang-options">
@@ -4196,12 +4569,13 @@ export default function ExpensesPage() {
                     type="button"
                     className="excel-lang-btn bn"
                     onClick={() => {
+                      const fmt = excelLangModal.format || "xlsx";
                       if (excelLangModal.type === "salary") {
-                        executeExportSalaryExcel("bn");
+                        executeExportSalaryExcel("bn", fmt);
                       } else if (excelLangModal.type === "comparison") {
-                        executeExportComparisonExcel("bn");
+                        executeExportComparisonExcel("bn", fmt);
                       } else {
-                        executeExportExcel("bn");
+                        executeExportExcel("bn", fmt);
                       }
                     }}
                   >
@@ -4216,12 +4590,13 @@ export default function ExpensesPage() {
                     type="button"
                     className="excel-lang-btn"
                     onClick={() => {
+                      const fmt = excelLangModal.format || "xlsx";
                       if (excelLangModal.type === "salary") {
-                        executeExportSalaryExcel("en");
+                        executeExportSalaryExcel("en", fmt);
                       } else if (excelLangModal.type === "comparison") {
-                        executeExportComparisonExcel("en");
+                        executeExportComparisonExcel("en", fmt);
                       } else {
-                        executeExportExcel("en");
+                        executeExportExcel("en", fmt);
                       }
                     }}
                   >

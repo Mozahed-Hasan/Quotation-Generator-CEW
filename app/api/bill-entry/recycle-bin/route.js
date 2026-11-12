@@ -8,9 +8,13 @@ import {
   restoreCustomerById,
   permanentDeleteCustomerById,
 } from "@/lib/db";
+import { isStealthCloaked, getAuthUser } from "@/lib/serverAuth";
 
-export async function GET() {
+export async function GET(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ ok: true, items: [], stealth_locked: true });
+    }
     const items = await getRecycleBinItems();
     return NextResponse.json({ ok: true, items });
   } catch (err) {
@@ -20,8 +24,12 @@ export async function GET() {
 
 export async function POST(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ error: "System currently offline for maintenance" }, { status: 503 });
+    }
     const body = await req.json();
     const { action, id, customer_id } = body || {};
+    const actor = await getAuthUser(req);
 
     if (action === "restore") {
       if (!id && !customer_id) {
@@ -41,6 +49,9 @@ export async function POST(req) {
     }
 
     if (action === "permanent_delete") {
+      if (!actor || actor.role !== "admin") {
+        return NextResponse.json({ error: "Only administrators can permanently delete records" }, { status: 403 });
+      }
       if (!id && !customer_id) {
         return NextResponse.json({ error: "Missing ID or Customer ID to delete" }, { status: 400 });
       }
@@ -53,6 +64,9 @@ export async function POST(req) {
     }
 
     if (action === "empty") {
+      if (!actor || actor.role !== "admin") {
+        return NextResponse.json({ error: "Only administrators can empty the recycle bin" }, { status: 403 });
+      }
       await emptyRecycleBin();
       return NextResponse.json({ ok: true, message: "Recycle bin emptied successfully" });
     }
@@ -65,6 +79,13 @@ export async function POST(req) {
 
 export async function DELETE(req) {
   try {
+    if (await isStealthCloaked(req)) {
+      return NextResponse.json({ error: "System currently offline for maintenance" }, { status: 503 });
+    }
+    const actor = await getAuthUser(req);
+    if (!actor || actor.role !== "admin") {
+      return NextResponse.json({ error: "Only administrators can permanently delete records" }, { status: 403 });
+    }
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     const customerId = searchParams.get("customer_id");

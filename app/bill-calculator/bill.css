@@ -761,12 +761,17 @@
       font-size: 0.78rem;
     }
     .header-actions {
-      gap: 6px;
+      width: 100%;
+      flex-wrap: wrap;
+      gap: 8px;
     }
     .header-btn {
-      padding: 5px 9px;
-      font-size: 0.74rem;
-      gap: 4px;
+      flex: 1 1 auto;
+      justify-content: center;
+      padding: 8px 10px;
+      font-size: 0.78rem;
+      gap: 5px;
+      white-space: nowrap;
     }
     .card {
       padding: 16px 14px;
@@ -804,16 +809,16 @@
       font-size: 1.05rem;
     }
     .stats {
-      grid-template-columns: 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 16px;
     }
     .stat {
-      padding: 12px 14px;
+      padding: 11px 12px;
       border-radius: 12px;
     }
     .stat b {
-      font-size: 1.45rem;
+      font-size: 1.2rem;
     }
     .toggle button {
       padding: 6px 14px;
@@ -864,7 +869,7 @@
 
   @media (max-width: 480px) {
     .wrap {
-      padding: 16px 20px 48px;
+      padding: 10px 10px 32px;
     }
     .login {
       padding: 24px 18px;

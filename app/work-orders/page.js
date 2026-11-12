@@ -3,6 +3,9 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import TopPageNav from "@/lib/TopPageNav";
 import * as XLSX from "xlsx-js-style";
+import { exportReportToPdf } from "@/lib/pdfExport";
+import { batchTranslateTable, toBengaliDigits, toBengaliCurrency } from "@/lib/translator";
+import ExportLangModal from "@/lib/ExportLangModal";
 import {
   HomeIcon,
   CheckIcon,
@@ -44,17 +47,15 @@ function todayStr() {
 }
 
 export default function WorkOrdersPage() {
-  const [workOrders, setWorkOrders] = useState(() => getClientCache("wo_list", []));
-  const [counts, setCounts] = useState(() =>
-    getClientCache("wo_counts", {
-      total_count: 0,
-      pending_count: 0,
-      in_production_count: 0,
-      ready_count: 0,
-      delivered_count: 0,
-    })
-  );
-  const [initialLoading, setInitialLoading] = useState(() => !getClientCache("wo_counts"));
+  const [workOrders, setWorkOrders] = useState([]);
+  const [counts, setCounts] = useState({
+    total_count: 0,
+    pending_count: 0,
+    in_production_count: 0,
+    ready_count: 0,
+    delivered_count: 0,
+  });
+  const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
 
   // Filters
@@ -101,6 +102,18 @@ export default function WorkOrdersPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    const cachedOrders = getClientCache("wo_list");
+    const cachedCounts = getClientCache("wo_counts");
+    if (cachedOrders) {
+      setWorkOrders(cachedOrders);
+    }
+    if (cachedCounts) {
+      setCounts(cachedCounts);
+      setInitialLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadWorkOrders();
@@ -291,6 +304,91 @@ export default function WorkOrdersPage() {
     setPrintModalOpen(true);
   }
 
+  const [pdfModal, setPdfModal] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState(0);
+
+  async function executeExportPdf(lang = "en") {
+    if (!filteredOrders.length) {
+      alert("No work orders to export.");
+      setPdfModal(false);
+      return;
+    }
+    const isBn = lang === "bn";
+    setPdfBusy(true);
+    setPdfProgress(15);
+    try {
+      const headers = isBn
+        ? ["ওয়ার্ক অর্ডার", "তারিখ", "ক্রেতার নাম", "মোবাইল", "বিবরণ", "অবস্থা", "মোট বিল", "অগ্রিম", "বাকি"]
+        : ["WO Number", "Order Date", "Customer Name", "Mobile", "Items Breakdown", "Status", "Total Bill", "Advance", "Due"];
+
+      let tableRows = filteredOrders.map((o) => {
+        const itemsStr = Array.isArray(o.items)
+          ? o.items
+              .map((it) => `${it.name || "Item"} (${it.quantity || 1} ${it.unit || "pcs"}${it.specs ? ` - ${it.specs}` : ""})`)
+              .join("; ")
+          : "";
+        return [
+          o.work_order_no || "",
+          isBn ? toBengaliDigits(o.order_date || "") : (o.order_date || ""),
+          o.customer_name || "",
+          isBn ? toBengaliDigits(o.customer_mobile || "") : (o.customer_mobile || ""),
+          itemsStr,
+          o.status || "Pending",
+          isBn ? toBengaliCurrency(o.total_amount || 0) : Number(o.total_amount || 0).toFixed(2),
+          isBn ? toBengaliCurrency(o.advance_paid || 0) : Number(o.advance_paid || 0).toFixed(2),
+          isBn ? toBengaliCurrency(o.due_amount || 0) : Number(o.due_amount || 0).toFixed(2),
+        ];
+      });
+
+      const totBill = filteredOrders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+      const totAdv = filteredOrders.reduce((s, o) => s + Number(o.advance_paid || 0), 0);
+      const totDue = filteredOrders.reduce((s, o) => s + Number(o.due_amount || 0), 0);
+      const summaryRows = [
+        [
+          isBn ? "সর্বমোট" : "TOTAL",
+          "", "", "", "", "",
+          isBn ? toBengaliCurrency(totBill) : totBill.toFixed(2),
+          isBn ? toBengaliCurrency(totAdv) : totAdv.toFixed(2),
+          isBn ? toBengaliCurrency(totDue) : totDue.toFixed(2),
+        ],
+      ];
+
+      if (isBn) {
+        tableRows = await batchTranslateTable(tableRows, (pct) => setPdfProgress(Math.round(15 + pct * 0.75)));
+      }
+      setPdfBusy(false);
+      setPdfProgress(0);
+      setPdfModal(false);
+      await new Promise((r) => setTimeout(r, 30));
+
+      const langTag = isBn ? "_Bangla" : "";
+      await exportReportToPdf({
+        title: isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS",
+        subtitle: isBn ? `ওয়ার্ক অর্ডার রিপোর্ট (${todayStr()})` : `Work Orders Report (${todayStr()})`,
+        filename: `Work_Orders_${todayStr()}${langTag}.pdf`,
+        sheets: [
+          {
+            sheetTitle: isBn ? "ওয়ার্ক অর্ডার তালিকা" : "Work Orders",
+            headers,
+            rows: tableRows,
+            summaryRows,
+            rightAlignCols: [6, 7, 8],
+          },
+        ],
+        lang,
+        orientation: "landscape",
+      });
+    } catch (err) {
+      console.error("PDF export error:", err);
+      alert("Failed to export PDF file");
+    } finally {
+      setPdfBusy(false);
+      setPdfProgress(0);
+      setPdfModal(false);
+    }
+  }
+
   // Excel Export
   function exportToExcel() {
     try {
@@ -460,7 +558,7 @@ export default function WorkOrdersPage() {
         {/* Filter and Actions Bar */}
         <div className="wo-filter-bar">
           {/* Status Tabs */}
-          <div style={{ display: "inline-flex", gap: 4, background: "#f8fafc", padding: 3, borderRadius: 10, border: "1px solid #e2e8f0" }}>
+          <div className="wo-tabs-group" style={{ display: "inline-flex", gap: 4, background: "#f8fafc", padding: 3, borderRadius: 10, border: "1px solid #e2e8f0" }}>
             {["all", "Pending", "In Production", "Ready", "Delivered"].map((st) => (
               <button
                 key={st}
@@ -474,8 +572,8 @@ export default function WorkOrdersPage() {
           </div>
 
           {/* Search & Priority Controls */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ position: "relative", width: 230 }}>
+          <div className="wo-controls-group" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div className="wo-search-box" style={{ position: "relative", width: 230 }}>
               <input
                 type="text"
                 className="be-input"
@@ -508,7 +606,18 @@ export default function WorkOrdersPage() {
               title="Download Excel Report"
             >
               <DownloadIcon size={14} />
-              <span>Export</span>
+              <span>Export Excel</span>
+            </button>
+
+            <button
+              type="button"
+              className="wo-btn"
+              onClick={() => setPdfModal(true)}
+              style={{ background: "#1e293b", color: "#fff", borderColor: "#1e293b" }}
+              title="Download PDF Report"
+            >
+              <DownloadIcon size={14} />
+              <span>Download PDF</span>
             </button>
 
             <button
@@ -1277,6 +1386,16 @@ export default function WorkOrdersPage() {
           </div>
         </div>
       )}
+      <ExportLangModal
+        isOpen={pdfModal}
+        title="Download Work Orders PDF"
+        subtitle={`Total Orders: ${filteredOrders.length}`}
+        format="pdf"
+        busy={pdfBusy}
+        progress={pdfProgress}
+        onClose={() => setPdfModal(false)}
+        onSelect={executeExportPdf}
+      />
     </main>
   );
 }
