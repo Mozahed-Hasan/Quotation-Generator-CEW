@@ -37,10 +37,12 @@ export async function POST(req) {
       from_bank: (b.from_bank || "").trim(),
       to_bank: (b.to_bank || "").trim(),
       sync_to_ledger: Boolean(b.sync_to_ledger),
+      sync_account: Boolean(b.sync_account),
+      account_id: (b.account_id || "").trim() || null,
       client_type: (b.client_type || "").trim(),
       note: (b.note || "").trim(),
     });
-    return NextResponse.json({ ok: true, id: saved.id, linked_entry_id: saved.linked_entry_id });
+    return NextResponse.json({ ok: true, id: saved.id, linked_entry_id: saved.linked_entry_id, account_id: saved.account_id });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -67,6 +69,8 @@ export async function PUT(req) {
       phone: (b.phone || "").trim(),
       from_bank: (b.from_bank || "").trim(),
       to_bank: (b.to_bank || "").trim(),
+      sync_account: Boolean(b.sync_account),
+      account_id: (b.account_id || "").trim() || null,
       note: (b.note || "").trim(),
     });
     return NextResponse.json({ ok: true, expense: updated });

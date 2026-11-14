@@ -289,6 +289,14 @@ export default function ExpensesPage() {
   const fromBankRef = useRef(null);
   const toBankRef = useRef(null);
 
+  // Expense Accounts & Ledgers (Top Sheet) States
+  const [expenseAccounts, setExpenseAccounts] = useState([]);
+  const [selectedAccountId, setSelectedAccountId] = useState(null);
+  const [syncAccount, setSyncAccount] = useState(false);
+  const [recordsTab, setRecordsTab] = useState("records"); // 'records' | 'accounts'
+  const [accountSearch, setAccountSearch] = useState("");
+  const [selectedAccountForLedger, setSelectedAccountForLedger] = useState(null);
+
   // Excel Import States
   const [showImportModal, setShowImportModal] = useState(false);
   const [importPreview, setImportPreview] = useState(null);
@@ -393,6 +401,21 @@ export default function ExpensesPage() {
       setInitialLoading(false);
     }
     loadSalesBills();
+    loadAccounts();
+  }
+
+  async function loadAccounts() {
+    try {
+      const res = await fetch("/api/expense-accounts");
+      if (res.ok) {
+        const data = await res.json();
+        const accs = data.accounts || [];
+        setExpenseAccounts(accs);
+        setClientCache("expense_accounts_list", accs);
+      }
+    } catch (e) {
+      console.error("Failed to load expense accounts", e);
+    }
   }
 
   async function loadSalesBills() {
@@ -499,6 +522,51 @@ export default function ExpensesPage() {
     return allStaff.find((s) => s.toLowerCase() === q) || null;
   }, [allStaff, form.paid_to]);
 
+  const filteredExpenseAccounts = useMemo(() => {
+    const q = (form.paid_to || "").trim().toLowerCase();
+    if (!q) return expenseAccounts;
+    return expenseAccounts.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        (a.account_id && a.account_id.toLowerCase().includes(q)) ||
+        (a.phone && a.phone.includes(q))
+    );
+  }, [expenseAccounts, form.paid_to]);
+
+  const filteredAccountsList = useMemo(() => {
+    const q = (accountSearch || "").trim().toLowerCase();
+    if (!q) return expenseAccounts;
+    return expenseAccounts.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        (a.account_id && a.account_id.toLowerCase().includes(q)) ||
+        (a.phone && a.phone.includes(q)) ||
+        (a.category && a.category.toLowerCase().includes(q))
+    );
+  }, [expenseAccounts, accountSearch]);
+
+  const accountLedgerExpenses = useMemo(() => {
+    if (!selectedAccountForLedger) return [];
+    const accId = selectedAccountForLedger.account_id;
+    const accName = (selectedAccountForLedger.name || "").trim().toLowerCase();
+    return expenses.filter(
+      (x) =>
+        (x.account_id && x.account_id === accId) ||
+        (!x.account_id && (x.paid_to || "").trim().toLowerCase() === accName)
+    );
+  }, [expenses, selectedAccountForLedger]);
+
+  function handleSelectExpenseAccount(acc) {
+    setForm((prev) => ({
+      ...prev,
+      paid_to: acc.name,
+      phone: acc.phone || prev.phone,
+    }));
+    setSelectedAccountId(acc.account_id);
+    setSyncAccount(true);
+    setShowDropdown(false);
+  }
+
   function handleCategoryChange(cat) {
     const isStaff = cat === "Salary";
     const isSupplier = cat === "Supplier Payment (Raw Materials)";
@@ -592,6 +660,7 @@ export default function ExpensesPage() {
     const cachedExpenses = getClientCache("expenses_list");
     const cachedSalesBills = getClientCache("sales_bills");
     const cachedClients = getClientCache("expenses_clients");
+    const cachedAccounts = getClientCache("expense_accounts_list");
     if (cachedExpenses) {
       setExpenses(cachedExpenses);
       setInitialLoading(false);
@@ -602,9 +671,13 @@ export default function ExpensesPage() {
     if (cachedClients) {
       setClients(cachedClients);
     }
+    if (cachedAccounts) {
+      setExpenseAccounts(cachedAccounts);
+    }
     load();
     loadClients();
     loadSalesBills();
+    loadAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -722,7 +795,13 @@ export default function ExpensesPage() {
       addCustomStaff(form.paid_to.trim());
     }
 
-    const isLinked = Boolean(!isStaffExpense && syncToLedger && form.paid_to.trim());
+    const isLinked = Boolean(
+      !isStaffExpense &&
+      !isDepositCategory(form.category) &&
+      (isSupplierPayment || matchedClient) &&
+      syncToLedger &&
+      form.paid_to.trim()
+    );
     const clientType = matchedClient
       ? (matchedClient.type === "dealer" ? "dealer" : "supplier")
       : customClientType;
@@ -736,6 +815,8 @@ export default function ExpensesPage() {
           to_bank: isDepositCategory(form.category) ? (form.to_bank || form.paid_to.trim()) : form.to_bank,
           from_bank: isDepositCategory(form.category) ? (form.from_bank || "Cash Drawer") : form.from_bank,
           sync_to_ledger: isLinked,
+          sync_account: Boolean(syncAccount),
+          account_id: selectedAccountId || undefined,
           client_type: clientType,
         }),
       });
@@ -745,8 +826,10 @@ export default function ExpensesPage() {
         setErr(data.error || "Failed to save expense");
       } else {
         const syncMsg = isLinked
-          ? ` • Synced as payment in ${form.paid_to.trim()}'s ledger`
-          : "";
+          ? ` • Synced as payment in ${form.paid_to.trim()}'s purchase ledger`
+          : (syncAccount && form.paid_to.trim()
+            ? ` • Synced to ${form.paid_to.trim()}'s Expense Ledger (${data.account_id || "Account"})`
+            : "");
         setOk(`৳ ${fmt(form.amount)} expense recorded${syncMsg}.`);
         setRef(form.expense_date);
         setForm({
@@ -755,8 +838,11 @@ export default function ExpensesPage() {
           category: form.category,
           payment_method: form.payment_method,
         });
+        setSelectedAccountId(null);
+        setSyncAccount(false);
         await load();
         await loadClients();
+        await loadAccounts();
       }
     } catch (e2) {
       setErr(e2.message);
@@ -930,6 +1016,7 @@ export default function ExpensesPage() {
       }
       setOk("Expense updated successfully.");
       await load();
+      await loadAccounts();
       setIsEditingModal(false);
       setEditModalData(null);
       setSelectedExpenseForModal(null);
@@ -941,9 +1028,8 @@ export default function ExpensesPage() {
     }
   }
 
-  async function handleDeleteFromModal() {
-    if (!selectedExpenseForModal) return;
-    const x = selectedExpenseForModal;
+  async function handleDeleteExpense(x) {
+    if (!x) return;
     const syncNote = x.linked_entry_id ? "\n(This will also remove the linked payment from the ledger)" : "";
     if (!confirm(`Are you sure you want to delete expense "${x.title}" (৳ ${fmt(x.amount)})?${syncNote}`)) return;
     setModalBusy(true);
@@ -955,13 +1041,51 @@ export default function ExpensesPage() {
       }
       setOk("Expense deleted.");
       await load();
-      setSelectedExpenseForModal(null);
-      setIsEditingModal(false);
-      setEditModalData(null);
+      await loadAccounts();
+      if (selectedExpenseForModal?.id === x.id) {
+        setSelectedExpenseForModal(null);
+        setIsEditingModal(false);
+        setEditModalData(null);
+      }
     } catch (err) {
       alert("Failed to delete: " + err.message);
     } finally {
       setModalBusy(false);
+    }
+  }
+
+  async function handleDeleteFromModal() {
+    if (!selectedExpenseForModal) return;
+    await handleDeleteExpense(selectedExpenseForModal);
+  }
+
+  async function handleDeleteAccount(acc) {
+    if (!acc) return;
+    const hasEntries = Number(acc.total_entries || 0) > 0;
+    const warningMsg = hasEntries
+      ? `Account "${acc.name}" (${acc.account_id}) has ${acc.total_entries} transaction entries totaling ৳ ${fmt(acc.total_paid || 0)}.\n\nDeleting this account will remove the account record. Any existing expense entries will remain in the general expense records without account linking.\n\nAre you sure you want to delete this account?`
+      : `Are you sure you want to delete account "${acc.name}" (${acc.account_id})?`;
+
+    if (!confirm(warningMsg)) return;
+
+    try {
+      const res = await fetch(`/api/expense-accounts?id=${encodeURIComponent(acc.account_id || acc.id)}`, {
+        method: "DELETE",
+      });
+      if (res.status === 401) return router.replace("/");
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to delete account");
+        return;
+      }
+      setOk(`Account "${acc.name}" deleted successfully.`);
+      if (selectedAccountForLedger?.account_id === acc.account_id || selectedAccountForLedger?.id === acc.id) {
+        setSelectedAccountForLedger(null);
+      }
+      await loadAccounts();
+      await load();
+    } catch (err) {
+      alert("Failed to delete account: " + err.message);
     }
   }
 
@@ -2090,6 +2214,219 @@ export default function ExpensesPage() {
     }
   }
 
+  // Export Expense Accounts & Ledgers Top Sheet to Excel
+  function exportAccountsTopSheetExcel(lang = "en") {
+    if (!expenseAccounts.length) return;
+    const isBn = lang === "bn";
+    const rows = [
+      [isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS"],
+      [isBn ? "খরচ খতিয়ান ও হিসাব খাত সারাংশ" : "EXPENSE ACCOUNTS & LEDGERS TOP SHEET"],
+      [isBn ? `তৈরির তারিখ: ${today()} | মোট অ্যাকাউন্ট: ${toBengaliNumber(expenseAccounts.length)}` : `Generated: ${today()} | Total Accounts: ${expenseAccounts.length}`],
+      [],
+      isBn
+        ? ["ক্রমিক", "অ্যাকাউন্ট / প্রাপকের নাম", "অ্যাকাউন্ট আইডি", "ফোন নম্বর", "খরচের খাত", "মোট এন্ট্রি", "মোট প্রদান (টাকা)", "সর্বশেষ লেনদেন"]
+        : ["SL", "Account / Recipient Name", "Account ID", "Phone No.", "Expense Head", "Total Entries", "Total Paid (Tk)", "Last Activity"]
+    ];
+
+    let grandTotalPaid = 0;
+    let grandTotalEntries = 0;
+
+    expenseAccounts.forEach((acc, idx) => {
+      const paid = Number(acc.total_paid || 0);
+      const entries = Number(acc.total_entries || 0);
+      grandTotalPaid += paid;
+      grandTotalEntries += entries;
+      rows.push([
+        isBn ? toBengaliNumber(idx + 1) : idx + 1,
+        acc.name || "",
+        acc.account_id || "",
+        acc.phone || "",
+        acc.category || "General",
+        isBn ? toBengaliNumber(entries) : entries,
+        isBn ? toBengaliCurrency(paid) : paid,
+        acc.last_activity || ""
+      ]);
+    });
+
+    rows.push([]);
+    rows.push([
+      isBn ? "সর্বমোট" : "TOTAL",
+      isBn ? `${toBengaliNumber(expenseAccounts.length)} টি অ্যাকাউন্ট` : `${expenseAccounts.length} Accounts`,
+      "",
+      "",
+      "",
+      isBn ? toBengaliNumber(grandTotalEntries) : grandTotalEntries,
+      isBn ? toBengaliCurrency(grandTotalPaid) : grandTotalPaid,
+      ""
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    applyExcelStyles(ws, rows, 4);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, isBn ? "হিসাব সারাংশ" : "Accounts TopSheet");
+    XLSX.writeFile(wb, `CEW_Expense_Accounts_TopSheet_${today().replace(/-/g, "")}_${lang}.xlsx`);
+  }
+
+  // Export Expense Accounts & Ledgers Top Sheet to PDF
+  async function exportAccountsTopSheetPdf(lang = "en") {
+    if (!expenseAccounts.length) return;
+    const isBn = lang === "bn";
+    const rows = [
+      isBn
+        ? ["ক্রমিক", "অ্যাকাউন্ট / প্রাপকের নাম", "অ্যাকাউন্ট আইডি", "ফোন নম্বর", "খরচের খাত", "মোট এন্ট্রি", "মোট প্রদান", "সর্বশেষ লেনদেন"]
+        : ["SL", "Account / Recipient Name", "Account ID", "Phone No.", "Expense Head", "Entries", "Total Paid (Tk)", "Last Activity"]
+    ];
+
+    let grandTotalPaid = 0;
+    let grandTotalEntries = 0;
+
+    expenseAccounts.forEach((acc, idx) => {
+      const paid = Number(acc.total_paid || 0);
+      const entries = Number(acc.total_entries || 0);
+      grandTotalPaid += paid;
+      grandTotalEntries += entries;
+      rows.push([
+        isBn ? toBengaliNumber(idx + 1) : idx + 1,
+        acc.name || "",
+        acc.account_id || "",
+        acc.phone || "-",
+        acc.category || "General",
+        isBn ? toBengaliNumber(entries) : entries,
+        isBn ? `${toBengaliCurrency(paid)} টাকা` : `Tk ${fmt(paid)}`,
+        acc.last_activity || "-"
+      ]);
+    });
+
+    rows.push([
+      isBn ? "সর্বমোট" : "TOTAL",
+      isBn ? `${toBengaliNumber(expenseAccounts.length)} টি অ্যাকাউন্ট` : `${expenseAccounts.length} Accounts`,
+      "",
+      "",
+      "",
+      isBn ? toBengaliNumber(grandTotalEntries) : grandTotalEntries,
+      isBn ? `${toBengaliCurrency(grandTotalPaid)} টাকা` : `Tk ${fmt(grandTotalPaid)}`,
+      ""
+    ]);
+
+    try {
+      await exportReportToPdf({
+        title: isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS",
+        subtitle: isBn ? `খরচ খতিয়ান ও হিসাব খাত সারাংশ - ${today()}` : `EXPENSE ACCOUNTS & LEDGERS TOP SHEET - ${today()}`,
+        filename: `CEW_Expense_Accounts_TopSheet_${today().replace(/-/g, "")}_${lang}.pdf`,
+        sheets: [aoaToPdfSheet(rows, isBn ? "হিসাব সারাংশ" : "Accounts Top Sheet", [6])],
+        lang: isBn ? "bn" : "en",
+        orientation: "landscape",
+      });
+    } catch (e) {
+      console.error("Failed to export PDF", e);
+      alert("Failed to export PDF: " + e.message);
+    }
+  }
+
+  // Export Single Account Ledger Statement to Excel
+  function exportSingleAccountLedgerExcel(acc, ledgerItems, lang = "en") {
+    if (!acc) return;
+    const isBn = lang === "bn";
+    const rows = [
+      [isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS"],
+      [isBn ? `খরচ খতিয়ান বিবরণী - ${acc.name}` : `EXPENSE LEDGER STATEMENT - ${acc.name.toUpperCase()}`],
+      [isBn ? `অ্যাকাউন্ট আইডি: ${acc.account_id} | ফোন: ${acc.phone || "প্রযোজ্য নয়"} | ক্যাটাগরি: ${acc.category || "General"}` : `Account ID: ${acc.account_id} | Phone: ${acc.phone || "N/A"} | Category: ${acc.category || "General"}`],
+      [isBn ? `তৈরির তারিখ: ${today()} | মোট লেনদেন: ${toBengaliNumber(ledgerItems.length)}` : `Generated: ${today()} | Total Entries: ${ledgerItems.length}`],
+      [],
+      isBn
+        ? ["ক্রমিক", "তারিখ", "বিবরণ / শিরোনাম", "ক্যাটাগরি", "পদ্ধতি", "পরিমাণ (টাকা)", "মন্তব্য"]
+        : ["SL", "Date", "Expense Title / Purpose", "Category", "Payment Method", "Amount (Tk)", "Note"]
+    ];
+
+    let totalDisbursed = 0;
+    const sorted = [...ledgerItems].sort((a, b) => a.expense_date.localeCompare(b.expense_date));
+
+    sorted.forEach((item, idx) => {
+      const amt = Number(item.amount || 0);
+      totalDisbursed += amt;
+      rows.push([
+        isBn ? toBengaliNumber(idx + 1) : idx + 1,
+        item.expense_date || "",
+        item.title || "",
+        item.category || "",
+        isBn ? (BN_TERMS[item.payment_method] || item.payment_method || "নগদ") : (item.payment_method || ""),
+        isBn ? toBengaliCurrency(amt) : amt,
+        item.note || ""
+      ]);
+    });
+
+    rows.push([]);
+    rows.push([
+      isBn ? "সর্বমোট প্রদান" : "TOTAL DISBURSED",
+      "",
+      "",
+      "",
+      "",
+      isBn ? toBengaliCurrency(totalDisbursed) : totalDisbursed,
+      ""
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    applyExcelStyles(ws, rows, 5);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, isBn ? "খতিয়ান বিবরণী" : "Ledger Statement");
+    const safeName = (acc.name || "account").replace(/[^a-zA-Z0-9\u0980-\u09FF]+/g, "_");
+    XLSX.writeFile(wb, `CEW_Ledger_${acc.account_id}_${safeName}_${lang}.xlsx`);
+  }
+
+  // Export Single Account Ledger Statement to PDF
+  async function exportSingleAccountLedgerPdf(acc, ledgerItems, lang = "en") {
+    if (!acc) return;
+    const isBn = lang === "bn";
+    const rows = [
+      isBn
+        ? ["ক্রমিক", "তারিখ", "বিবরণ / শিরোনাম", "ক্যাটাগরি", "পদ্ধতি", "পরিমাণ", "মন্তব্য"]
+        : ["SL", "Date", "Expense Title / Purpose", "Category", "Payment Method", "Amount (Tk)", "Note"]
+    ];
+
+    let totalDisbursed = 0;
+    const sorted = [...ledgerItems].sort((a, b) => a.expense_date.localeCompare(b.expense_date));
+
+    sorted.forEach((item, idx) => {
+      const amt = Number(item.amount || 0);
+      totalDisbursed += amt;
+      rows.push([
+        isBn ? toBengaliNumber(idx + 1) : idx + 1,
+        item.expense_date || "",
+        item.title || "",
+        item.category || "",
+        isBn ? (BN_TERMS[item.payment_method] || item.payment_method || "নগদ") : (item.payment_method || ""),
+        isBn ? `${toBengaliCurrency(amt)} টাকা` : `Tk ${fmt(amt)}`,
+        item.note || ""
+      ]);
+    });
+
+    rows.push([
+      isBn ? "সর্বমোট প্রদান" : "TOTAL DISBURSED",
+      "",
+      "",
+      "",
+      "",
+      isBn ? `${toBengaliCurrency(totalDisbursed)} টাকা` : `Tk ${fmt(totalDisbursed)}`,
+      ""
+    ]);
+
+    const safeName = (acc.name || "account").replace(/[^a-zA-Z0-9\u0980-\u09FF]+/g, "_");
+    try {
+      await exportReportToPdf({
+        title: isBn ? "চৌধুরী ইঞ্জিনিয়ারিং ওয়ার্কস" : "CHOWDHURY ENGINEERING WORKS",
+        subtitle: isBn ? `খরচ খতিয়ান - ${acc.name} (${acc.account_id}) | ফোন: ${acc.phone || "প্রযোজ্য নয়"}` : `EXPENSE LEDGER - ${acc.name} (${acc.account_id}) | Phone: ${acc.phone || "N/A"}`,
+        filename: `CEW_Ledger_${acc.account_id}_${safeName}_${lang}.pdf`,
+        sheets: [aoaToPdfSheet(rows, isBn ? "খতিয়ান বিবরণী" : "Ledger Statement", [5])],
+        lang: isBn ? "bn" : "en",
+        orientation: "portrait",
+      });
+    } catch (e) {
+      console.error("Failed to export PDF", e);
+      alert("Failed to export PDF: " + e.message);
+    }
+  }
+
   // Generate and download a sample Excel file template
   function downloadSampleTemplate() {
     const rows = [
@@ -2545,12 +2882,11 @@ export default function ExpensesPage() {
                   value={form.paid_to}
                   autoComplete="off"
                   onFocus={() => {
-                    if (isStaffExpense || isSupplierPayment || isDepositCategory(form.category)) {
-                      setShowDropdown(true);
-                    }
+                    setShowDropdown(true);
                   }}
                   onChange={(e) => {
                     const val = e.target.value;
+                    setSelectedAccountId(null);
                     setForm((prev) => {
                       let nextTitle = prev.title;
                       let nextToBank = prev.to_bank;
@@ -2575,13 +2911,11 @@ export default function ExpensesPage() {
                         title: nextTitle,
                       };
                     });
-                    if (isStaffExpense || isSupplierPayment || isDepositCategory(form.category)) {
-                      setShowDropdown(true);
-                    }
+                    setShowDropdown(true);
                   }}
                 />
-                {showDropdown && (isStaffExpense || isSupplierPayment || isDepositCategory(form.category)) && (
-                  <div className="ex-dropdown">
+                {showDropdown && (
+                  <div className="ex-dropdown" style={{ maxHeight: 260 }}>
                     {isStaffExpense ? (
                       <>
                         <div className="ex-dropdown-header">
@@ -2691,7 +3025,71 @@ export default function ExpensesPage() {
                             </div>
                           )}
                       </>
-                    ) : null}
+                    ) : (
+                      <>
+                        <div className="ex-dropdown-header">
+                          Expense Accounts &amp; Ledgers ({filteredExpenseAccounts.length})
+                        </div>
+                        {filteredExpenseAccounts.length === 0 ? (
+                          <div className="ex-dropdown-empty">
+                            No saved account found. Type name to create.
+                          </div>
+                        ) : (
+                          filteredExpenseAccounts.map((acc) => (
+                            <div
+                              key={acc.account_id}
+                              className={`ex-dropdown-item ${form.paid_to.trim().toLowerCase() === acc.name.toLowerCase() ? "active" : ""}`}
+                              onClick={() => handleSelectExpenseAccount(acc)}
+                              style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                            >
+                              <div>
+                                <span style={{ fontWeight: 700, color: "#1e293b" }}>{acc.name}</span>
+                                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2, fontSize: "0.72rem", color: "#64748b" }}>
+                                  <span className="ex-acc-badge">{acc.account_id}</span>
+                                  {acc.phone && <span>Phone: {acc.phone}</span>}
+                                  {acc.category && <span style={{ color: "#0369a1" }}>• {acc.category}</span>}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: "right" }}>
+                                <div style={{ fontWeight: 700, fontSize: "0.82rem", color: "var(--be-primary, #8b1515)" }}>
+                                  ৳ {fmt(acc.total_paid || 0)}
+                                </div>
+                                <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>{acc.total_entries || 0} entries</div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                        {form.paid_to.trim() &&
+                          !expenseAccounts.some(
+                            (a) => a.name.toLowerCase() === form.paid_to.trim().toLowerCase()
+                          ) && (
+                            <div
+                              className="ex-dropdown-item"
+                              style={{
+                                background: "#fef2f2",
+                                color: "#991b1b",
+                                borderTop: "1px dashed #fecaca",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                                padding: "8px 12px",
+                              }}
+                              onClick={() => {
+                                setSyncAccount(true);
+                                setShowDropdown(false);
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span>+ Save <strong>"{form.paid_to.trim()}"</strong> as new Account</span>
+                              </div>
+                              <div style={{ fontSize: "0.72rem", color: "#b91c1c", fontWeight: 400, marginTop: 2 }}>
+                                {form.phone?.trim() && form.phone.trim().replace(/\D/g, "").length >= 6
+                                  ? `Will create Account ID: ACC-${form.phone.trim().replace(/\D/g, "")}`
+                                  : `Will create sequential Account ID (e.g. ACC-1001)`}
+                              </div>
+                            </div>
+                          )}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -2896,135 +3294,246 @@ export default function ExpensesPage() {
             ) : null
           )}
 
-          <button id="ex-save" type="submit" className="be-btn be-btn-primary" disabled={busy}
-            style={{ padding: "10px 22px", borderRadius: 8, fontWeight: 700, border: "none", cursor: "pointer" }}>
-            {busy ? "Saving..." : "Save Expense"}
-          </button>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 12,
+            marginTop: 18,
+            paddingTop: 14,
+            borderTop: "1px solid #f1f5f9"
+          }}>
+            <button id="ex-save" type="submit" className="be-btn be-btn-primary" disabled={busy}
+              style={{ padding: "10px 24px", borderRadius: 8, fontWeight: 700, border: "none", cursor: "pointer" }}>
+              {busy ? "Saving..." : "Save Expense"}
+            </button>
+
+            {/* Checkbox on bottom right */}
+            <label style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+              userSelect: "none",
+              padding: "8px 14px",
+              borderRadius: 8,
+              background: syncAccount ? "rgba(139, 21, 21, 0.05)" : "#f8fafc",
+              border: syncAccount ? "1px solid rgba(139, 21, 21, 0.25)" : "1px solid #e2e8f0",
+              transition: "all 0.15s ease"
+            }}>
+              <input
+                type="checkbox"
+                checked={syncAccount}
+                onChange={(e) => setSyncAccount(e.target.checked)}
+                style={{ width: 18, height: 18, accentColor: "var(--be-primary, #8b1515)", cursor: "pointer" }}
+              />
+              <span style={{ fontSize: "0.86rem", fontWeight: 700, color: syncAccount ? "var(--be-primary, #8b1515)" : "#475569" }}>
+                Save &amp; Sync as Ledger Account
+              </span>
+              <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                {form.phone?.trim() && form.phone.trim().replace(/\D/g, "").length >= 6
+                  ? `(ID: ACC-${form.phone.trim().replace(/\D/g, "")})`
+                  : `(Auto ID & Dropdown Sync)`}
+              </span>
+            </label>
+          </div>
         </form>
       </section>
 
-      {/* Records */}
+      {/* Records & Expense Accounts Top Sheet */}
       <section className="be-card">
-        <div className="be-card-header">
-          <h2 className="be-card-title">Expense Records</h2>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div className="be-card-header" style={{ alignItems: "center" }}>
+          <div style={{ display: "inline-flex", gap: 6, background: "#f1f5f9", padding: "4px", borderRadius: 10 }}>
             <button
               type="button"
-              className="be-nav-btn btn-import-open"
-              onClick={() => {
-                setShowImportModal(true);
-                setImportPreview(null);
-                setImportErr("");
+              className={`be-duration-btn ${recordsTab === "records" ? "active" : ""}`}
+              onClick={() => setRecordsTab("records")}
+              style={{ padding: "6px 14px", fontSize: "0.88rem", fontWeight: 700, borderRadius: 8 }}
+            >
+              Expense Records
+            </button>
+            <button
+              type="button"
+              className={`be-duration-btn ${recordsTab === "accounts" ? "active" : ""}`}
+              onClick={() => setRecordsTab("accounts")}
+              style={{
+                padding: "6px 14px",
+                fontSize: "0.88rem",
+                fontWeight: 700,
+                borderRadius: 8,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
               }}
-              title="Import past expenses from Excel or CSV file"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
             >
-              <UploadIcon size={14} /> Import Excel
+              Expense Accounts &amp; Ledgers
+              <span
+                style={{
+                  background: recordsTab === "accounts" ? "rgba(255,255,255,0.25)" : "var(--be-primary, #8b1515)",
+                  color: "#fff",
+                  borderRadius: 99,
+                  padding: "1px 7px",
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                }}
+              >
+                {expenseAccounts.length}
+              </span>
             </button>
-            <button
-              type="button"
-              className="be-nav-btn"
-              onClick={downloadSampleTemplate}
-              title="Download formatted sample Excel template"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-            >
-              <FileTextIcon size={14} /> Sample Template
-            </button>
-            {catFilter === "Salary" ? (
-              <>
-                <button
-                  type="button"
-                  className="be-nav-btn"
-                  onClick={() => openExcelLanguageModal("salary", `Staff / Salary Report`, "xlsx")}
-                  disabled={!filtered.length}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    background: "#991b1b",
-                    color: "#ffffff",
-                    borderColor: "#991b1b",
-                    fontWeight: 700,
-                  }}
-                  title="Download comprehensive multi-sheet Staff Excel Report"
-                >
-                  <FileTextIcon size={14} /> Export {catFilter} Excel
-                </button>
-                <button
-                  type="button"
-                  className="be-nav-btn"
-                  onClick={() => openExcelLanguageModal("salary", `Staff / Salary PDF Report`, "pdf")}
-                  disabled={!filtered.length}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    background: "#1e293b",
-                    color: "#ffffff",
-                    borderColor: "#1e293b",
-                    fontWeight: 700,
-                  }}
-                  title="Download comprehensive multi-sheet Staff PDF Report"
-                >
-                  <FileTextIcon size={14} /> Export {catFilter} PDF
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="be-nav-btn"
-                  onClick={() => openExcelLanguageModal("expenses", "Expense & Fund Transfer Report", "xlsx")}
-                  disabled={!filtered.length}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                >
-                  <FileTextIcon size={14} /> Export Excel
-                </button>
-                <button
-                  type="button"
-                  className="be-nav-btn"
-                  onClick={() => openExcelLanguageModal("expenses", "Expense & Fund Transfer PDF Report", "pdf")}
-                  disabled={!filtered.length}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    background: "#1e293b",
-                    color: "#ffffff",
-                    borderColor: "#1e293b",
-                    fontWeight: 700,
-                  }}
-                >
-                  <FileTextIcon size={14} /> Download PDF
-                </button>
-                {expenses.some((x) => x.category === "Salary") && (
-                  <>
-                    <button
-                      type="button"
-                      className="be-nav-btn"
-                      onClick={() => openExcelLanguageModal("salary", "Staff / Salary Report", "xlsx")}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                      title="Export multi-sheet Staff breakdown report for all salary payments"
-                    >
-                      <FileTextIcon size={14} /> Staff Excel
-                    </button>
-                    <button
-                      type="button"
-                      className="be-nav-btn"
-                      onClick={() => openExcelLanguageModal("salary", "Staff / Salary PDF Report", "pdf")}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                      title="Download Staff breakdown PDF report"
-                    >
-                      <FileTextIcon size={14} /> Staff PDF
-                    </button>
-                  </>
-                )}
-              </>
-            )}
           </div>
+
+          {recordsTab === "records" ? (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="be-nav-btn btn-import-open"
+                onClick={() => {
+                  setShowImportModal(true);
+                  setImportPreview(null);
+                  setImportErr("");
+                }}
+                title="Import past expenses from Excel or CSV file"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <UploadIcon size={14} /> Import Excel
+              </button>
+              <button
+                type="button"
+                className="be-nav-btn"
+                onClick={downloadSampleTemplate}
+                title="Download formatted sample Excel template"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <FileTextIcon size={14} /> Sample Template
+              </button>
+              {catFilter === "Salary" ? (
+                <>
+                  <button
+                    type="button"
+                    className="be-nav-btn"
+                    onClick={() => openExcelLanguageModal("salary", `Staff / Salary Report`, "xlsx")}
+                    disabled={!filtered.length}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "#991b1b",
+                      color: "#ffffff",
+                      borderColor: "#991b1b",
+                      fontWeight: 700,
+                    }}
+                    title="Download comprehensive multi-sheet Staff Excel Report"
+                  >
+                    <FileTextIcon size={14} /> Export {catFilter} Excel
+                  </button>
+                  <button
+                    type="button"
+                    className="be-nav-btn"
+                    onClick={() => openExcelLanguageModal("salary", `Staff / Salary PDF Report`, "pdf")}
+                    disabled={!filtered.length}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "#1e293b",
+                      color: "#ffffff",
+                      borderColor: "#1e293b",
+                      fontWeight: 700,
+                    }}
+                    title="Download comprehensive multi-sheet Staff PDF Report"
+                  >
+                    <FileTextIcon size={14} /> Export {catFilter} PDF
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="be-nav-btn"
+                    onClick={() => openExcelLanguageModal("expenses", "Expense & Fund Transfer Report", "xlsx")}
+                    disabled={!filtered.length}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    <FileTextIcon size={14} /> Export Excel
+                  </button>
+                  <button
+                    type="button"
+                    className="be-nav-btn"
+                    onClick={() => openExcelLanguageModal("expenses", "Expense & Fund Transfer PDF Report", "pdf")}
+                    disabled={!filtered.length}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "#1e293b",
+                      color: "#ffffff",
+                      borderColor: "#1e293b",
+                      fontWeight: 700,
+                    }}
+                  >
+                    <FileTextIcon size={14} /> Download PDF
+                  </button>
+                  {expenses.some((x) => x.category === "Salary") && (
+                    <>
+                      <button
+                        type="button"
+                        className="be-nav-btn"
+                        onClick={() => openExcelLanguageModal("salary", "Staff / Salary Report", "xlsx")}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                        title="Export multi-sheet Staff breakdown report for all salary payments"
+                      >
+                        <FileTextIcon size={14} /> Staff Excel
+                      </button>
+                      <button
+                        type="button"
+                        className="be-nav-btn"
+                        onClick={() => openExcelLanguageModal("salary", "Staff / Salary PDF Report", "pdf")}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                        title="Download Staff breakdown PDF report"
+                      >
+                        <FileTextIcon size={14} /> Staff PDF
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="be-nav-btn"
+                onClick={() => openExcelLanguageModal("accounts_top_sheet", "Expense Accounts Top Sheet", "xlsx")}
+                disabled={!expenseAccounts.length}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <FileTextIcon size={14} /> Export Top Sheet Excel
+              </button>
+              <button
+                type="button"
+                className="be-nav-btn"
+                onClick={() => openExcelLanguageModal("accounts_top_sheet", "Expense Accounts Top Sheet PDF", "pdf")}
+                disabled={!expenseAccounts.length}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "#1e293b",
+                  color: "#ffffff",
+                  borderColor: "#1e293b",
+                  fontWeight: 700,
+                }}
+              >
+                <FileTextIcon size={14} /> Download Top Sheet PDF
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="ex-period-bar">
+        {recordsTab === "records" ? (
+          <>
+            <div className="ex-period-bar">
           <div className="be-duration-group">
             {MODES.map((m) => (
               <button key={m.key} type="button"
@@ -3394,7 +3903,7 @@ export default function ExpensesPage() {
               <div className="ex-comp-table-wrap">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
                   <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "#1e3a8a" }}>
-                    📊 Detailed Category Comparison ({range.label} vs {prevPeriodData?.range?.label || "Previous Period"})
+                    Detailed Category Comparison ({range.label} vs {prevPeriodData?.range?.label || "Previous Period"})
                   </div>
                   <div style={{ display: "inline-flex", gap: 6 }}>
                     <button
@@ -3492,7 +4001,7 @@ export default function ExpensesPage() {
                   {comparisonData.length > 0 && (
                     <tfoot style={{ background: "#f8fafc", borderTop: "2px solid #cbd5e1" }}>
                       <tr>
-                        <td style={{ fontWeight: 800, color: "#0f172a" }}>TOTAL / সর্বমোট</td>
+                        <td style={{ fontWeight: 800, color: "#0f172a" }}>TOTAL</td>
                         <td style={{ textAlign: "right", fontWeight: 800, color: "#475569" }}>
                           ৳ {fmt(prevPeriodData?.total || 0)}
                         </td>
@@ -3735,7 +4244,396 @@ export default function ExpensesPage() {
             </>
           )}
         </div>
+        </>
+        ) : (
+          <div style={{ marginTop: 14 }}>
+            {/* KPI Summary Cards */}
+            <div className="ex-acc-kpi-grid">
+              <div className="ex-acc-kpi-card">
+                <span className="ex-acc-kpi-title">Total Accounts</span>
+                <span className="ex-acc-kpi-val">{expenseAccounts.length}</span>
+                <span className="ex-acc-kpi-sub">Tracked recurring, rent, donation &amp; expense heads</span>
+              </div>
+              <div className="ex-acc-kpi-card">
+                <span className="ex-acc-kpi-title">Total Disbursed</span>
+                <span className="ex-acc-kpi-val" style={{ color: "var(--be-primary, #8b1515)" }}>
+                  ৳ {fmt(expenseAccounts.reduce((sum, a) => sum + Number(a.total_paid || 0), 0))}
+                </span>
+                <span className="ex-acc-kpi-sub">Total expenditure disbursed across accounts</span>
+              </div>
+              <div className="ex-acc-kpi-card">
+                <span className="ex-acc-kpi-title">Total Transactions</span>
+                <span className="ex-acc-kpi-val" style={{ color: "#0284c7" }}>
+                  {expenseAccounts.reduce((sum, a) => sum + Number(a.total_entries || 0), 0)} records
+                </span>
+                <span className="ex-acc-kpi-sub">Total synced expense transactions</span>
+              </div>
+            </div>
+
+            {/* Search & Filter Bar */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <input
+                  type="text"
+                  className="be-input"
+                  placeholder="Search by recipient name, phone no, or Account ID (ACC-...)..."
+                  value={accountSearch}
+                  onChange={(e) => setAccountSearch(e.target.value)}
+                />
+              </div>
+              <span style={{ fontSize: "0.82rem", color: "#64748b" }}>
+                Showing <strong>{filteredAccountsList.length}</strong> of <strong>{expenseAccounts.length}</strong> accounts
+              </span>
+            </div>
+
+            {/* Accounts Top Sheet Table */}
+            <div className="be-ledger-table-wrap be-expense-desktop-table">
+              <table className="be-ledger-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 45, textAlign: "center" }}>SL</th>
+                    <th>Account / Recipient Name</th>
+                    <th style={{ width: 140 }}>Account ID</th>
+                    <th style={{ width: 140 }}>Phone No.</th>
+                    <th style={{ width: 150 }}>Expense Head</th>
+                    <th style={{ width: 90, textAlign: "center" }}>Entries</th>
+                    <th style={{ width: 140, textAlign: "right" }}>Total Paid (৳)</th>
+                    <th style={{ width: 130 }}>Last Activity</th>
+                    <th style={{ width: 170, textAlign: "center" }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAccountsList.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="ex-empty" style={{ textAlign: "center", padding: "36px 16px", color: "#64748b" }}>
+                        {expenseAccounts.length === 0 ? (
+                          <div>
+                            <div style={{ fontSize: "1rem", fontWeight: 700, marginBottom: 6, color: "#1e293b" }}>
+                              No Expense Accounts Found
+                            </div>
+                            <div style={{ fontSize: "0.85rem", color: "#64748b" }}>
+                              Check <strong>Save &amp; Sync as Ledger Account</strong> when saving an expense entry to automatically generate accounts and ledgers.
+                            </div>
+                          </div>
+                        ) : (
+                          <div>No accounts found matching your search.</div>
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredAccountsList.map((acc, idx) => (
+                      <tr key={acc.account_id || acc.id} className="ex-row-clickable" onClick={() => setSelectedAccountForLedger(acc)}>
+                        <td style={{ textAlign: "center", fontWeight: 600, color: "#64748b" }}>{idx + 1}</td>
+                        <td>
+                          <div style={{ fontWeight: 700, color: "#0f172a" }}>{acc.name}</div>
+                        </td>
+                        <td>
+                          <span className="ex-acc-badge">{acc.account_id}</span>
+                        </td>
+                        <td>
+                          {acc.phone ? (
+                            <span style={{ fontFamily: "monospace", fontSize: "0.84rem" }}>{acc.phone}</span>
+                          ) : (
+                            <span style={{ color: "#94a3b8", fontSize: "0.8rem" }}>—</span>
+                          )}
+                        </td>
+                        <td>
+                          <span className="ex-cat-tag">
+                            {acc.category || "General"}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: "center", fontWeight: 600 }}>{acc.total_entries || 0}</td>
+                        <td style={{ textAlign: "right", fontWeight: 800, color: "var(--be-primary, #8b1515)", fontSize: "0.92rem" }}>
+                          ৳ {fmt(acc.total_paid || 0)}
+                        </td>
+                        <td style={{ fontSize: "0.82rem", color: "#64748b" }}>
+                          {acc.last_activity || "—"}
+                        </td>
+                        <td style={{ textAlign: "center", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                          <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                            <button
+                              type="button"
+                              className="be-btn be-btn-primary"
+                              style={{ padding: "5px 12px", fontSize: "0.78rem", fontWeight: 700, borderRadius: 6, border: "none", cursor: "pointer" }}
+                              onClick={() => setSelectedAccountForLedger(acc)}
+                            >
+                              View Ledger
+                            </button>
+                            <button
+                              type="button"
+                              className="be-btn"
+                              style={{
+                                padding: "5px 10px",
+                                fontSize: "0.78rem",
+                                fontWeight: 600,
+                                borderRadius: 6,
+                                background: "#fee2e2",
+                                color: "#b91c1c",
+                                border: "1px solid #fecaca",
+                                cursor: "pointer"
+                              }}
+                              onClick={() => handleDeleteAccount(acc)}
+                              title="Delete this account"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {filteredAccountsList.length > 0 && (
+                  <tfoot className="ex-tfoot">
+                    <tr className="ex-tfoot-expense">
+                      <td colSpan={5} style={{ color: "#0f172a", fontWeight: 800 }}>
+                        TOTAL ({filteredAccountsList.length} accounts)
+                      </td>
+                      <td style={{ textAlign: "center", fontWeight: 800, color: "#0f172a" }}>
+                        {filteredAccountsList.reduce((s, a) => s + Number(a.total_entries || 0), 0)}
+                      </td>
+                      <td style={{ textAlign: "right", color: "var(--be-primary, #8b1515)", fontWeight: 800, fontSize: "0.95rem" }}>
+                        ৳ {fmt(filteredAccountsList.reduce((s, a) => s + Number(a.total_paid || 0), 0))}
+                      </td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+        )}
       </section>
+
+      {/* Account Ledger Statement Modal */}
+      {selectedAccountForLedger && (
+        <div className="be-modal-backdrop" onClick={() => setSelectedAccountForLedger(null)} style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15, 23, 42, 0.55)",
+          backdropFilter: "blur(2px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 9999,
+          padding: 16
+        }}>
+          <div
+            className="be-modal-content"
+            style={{
+              maxWidth: 900,
+              width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              borderRadius: 14,
+              background: "#ffffff",
+              boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)",
+              padding: 24
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "1px solid #e2e8f0", paddingBottom: 14 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800, color: "var(--be-primary, #8b1515)" }}>
+                    {selectedAccountForLedger.name}
+                  </h3>
+                  <span className="ex-acc-badge">{selectedAccountForLedger.account_id}</span>
+                </div>
+                <div style={{ display: "flex", gap: 16, marginTop: 6, fontSize: "0.82rem", color: "#64748b", flexWrap: "wrap" }}>
+                  {selectedAccountForLedger.phone && <span>Phone: {selectedAccountForLedger.phone}</span>}
+                  <span>Head: {selectedAccountForLedger.category || "General"}</span>
+                  <span>Account Created: {selectedAccountForLedger.created_at ? new Date(selectedAccountForLedger.created_at).toLocaleDateString() : "—"}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedAccountForLedger(null)}
+                style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4, color: "#64748b" }}
+              >
+                <XIcon size={20} />
+              </button>
+            </div>
+
+            {/* Account KPI Banner */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 12,
+              margin: "16px 0",
+              padding: "12px 16px",
+              background: "#f8fafc",
+              borderRadius: 10,
+              border: "1px solid #e2e8f0"
+            }}>
+              <div>
+                <div style={{ fontSize: "0.74rem", color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>Total Disbursed</div>
+                <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "var(--be-primary, #8b1515)", marginTop: 2 }}>
+                  ৳ {fmt(accountLedgerExpenses.reduce((s, x) => s + Number(x.amount || 0), 0))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "0.74rem", color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>Total Transactions</div>
+                <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#0f172a", marginTop: 2 }}>
+                  {accountLedgerExpenses.length} entries
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "0.74rem", color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>Last Activity</div>
+                <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#334155", marginTop: 4 }}>
+                  {accountLedgerExpenses[0]?.expense_date || "—"}
+                </div>
+              </div>
+            </div>
+
+            {/* Ledger Table */}
+            <div className="be-ledger-table-wrap" style={{ maxHeight: 380, overflowY: "auto" }}>
+              <table className="be-ledger-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 45, textAlign: "center" }}>SL</th>
+                    <th style={{ width: 110 }}>Date</th>
+                    <th>Expense Title / Purpose</th>
+                    <th style={{ width: 130 }}>Category</th>
+                    <th style={{ width: 110 }}>Method</th>
+                    <th style={{ width: 120, textAlign: "right" }}>Amount (৳)</th>
+                    <th>Note</th>
+                    <th style={{ width: 130, textAlign: "center" }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accountLedgerExpenses.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="ex-empty" style={{ textAlign: "center", padding: 24, color: "#94a3b8" }}>
+                        No transaction records found for this account.
+                      </td>
+                    </tr>
+                  ) : (
+                    accountLedgerExpenses.map((x, idx) => (
+                      <tr key={x.id}>
+                        <td style={{ textAlign: "center", color: "#64748b", fontSize: "0.82rem", fontWeight: 600 }}>{idx + 1}</td>
+                        <td style={{ fontWeight: 600, fontSize: "0.84rem" }}>{x.expense_date}</td>
+                        <td>
+                          <div style={{ fontWeight: 600, color: "#0f172a" }}>{x.title}</div>
+                        </td>
+                        <td>
+                          <span className="ex-cat-tag">{x.category}</span>
+                        </td>
+                        <td>
+                          <span className={`ex-method-pill ${(x.payment_method || "").toLowerCase()}`}>
+                            {x.payment_method}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: "right", fontWeight: 800, color: "var(--be-primary, #8b1515)" }}>
+                          ৳ {fmt(x.amount)}
+                        </td>
+                        <td style={{ fontSize: "0.8rem", color: "#64748b" }}>{x.note || "—"}</td>
+                        <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                          <div style={{ display: "inline-flex", gap: 6 }}>
+                            <button
+                              type="button"
+                              className="be-btn be-btn-outline"
+                              style={{ padding: "3px 9px", fontSize: "0.75rem", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}
+                              onClick={() => {
+                                setSelectedExpenseForModal(x);
+                                setIsEditingModal(true);
+                                setEditModalData({
+                                  ...x,
+                                  amount: String(x.amount ?? ""),
+                                });
+                                setModalErr("");
+                              }}
+                              title="Edit this expense entry"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="be-btn"
+                              style={{ padding: "3px 9px", fontSize: "0.75rem", borderRadius: 6, cursor: "pointer", background: "#fee2e2", color: "#b91c1c", border: "1px solid #fecaca", fontWeight: 600 }}
+                              onClick={() => handleDeleteExpense(x)}
+                              title="Delete this expense entry"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {accountLedgerExpenses.length > 0 && (
+                  <tfoot className="ex-tfoot">
+                    <tr className="ex-tfoot-expense">
+                      <td colSpan={5} style={{ textAlign: "right", paddingRight: 16, fontWeight: 800, color: "#0f172a" }}>Total Disbursed:</td>
+                      <td style={{ textAlign: "right", color: "var(--be-primary, #8b1515)", fontSize: "1rem", fontWeight: 800 }}>
+                        ৳ {fmt(accountLedgerExpenses.reduce((s, x) => s + Number(x.amount || 0), 0))}
+                      </td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20, paddingTop: 14, borderTop: "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className="be-nav-btn"
+                  onClick={() => openExcelLanguageModal("single_account_ledger", `Expense Ledger - ${selectedAccountForLedger.name}`, "xlsx")}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                >
+                  <FileTextIcon size={14} /> Download Ledger Excel
+                </button>
+                <button
+                  type="button"
+                  className="be-nav-btn"
+                  onClick={() => openExcelLanguageModal("single_account_ledger", `Expense Ledger PDF - ${selectedAccountForLedger.name}`, "pdf")}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "#1e293b",
+                    color: "#ffffff",
+                    borderColor: "#1e293b",
+                    fontWeight: 700,
+                  }}
+                >
+                  <FileTextIcon size={14} /> Download Ledger PDF
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button
+                  type="button"
+                  className="be-btn"
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 8,
+                    background: "#fee2e2",
+                    color: "#b91c1c",
+                    border: "1px solid #fecaca",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                  onClick={() => handleDeleteAccount(selectedAccountForLedger)}
+                >
+                  Delete Account
+                </button>
+                <button
+                  type="button"
+                  className="be-btn"
+                  style={{ padding: "8px 20px", borderRadius: 8, background: "#e2e8f0", color: "#334155", fontWeight: 600, border: "none", cursor: "pointer" }}
+                  onClick={() => setSelectedAccountForLedger(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Excel Import Modal */}
       {showImportModal && (
@@ -3908,7 +4806,7 @@ export default function ExpensesPage() {
       {selectedExpenseForModal && (
         <div
           className="ex-modal-overlay"
-          style={{ zIndex: 1200 }}
+          style={{ zIndex: 10050 }}
           onClick={() => {
             if (isEditingModal && !confirm("Discard unsaved changes?")) return;
             setSelectedExpenseForModal(null);
@@ -3937,7 +4835,7 @@ export default function ExpensesPage() {
                     textTransform: "uppercase",
                   }}
                 >
-                  {isEditingModal ? "✏️ Edit Mode" : "Expense Details"}
+                  {isEditingModal ? "Edit Mode" : "Expense Details"}
                 </span>
                 <h3 className="ex-modal-title" style={{ margin: 0, color: "#0f172a", fontSize: "1.1rem" }}>
                   {isEditingModal ? "Edit Expense Entry" : selectedExpenseForModal.title}
@@ -4005,7 +4903,7 @@ export default function ExpensesPage() {
                         marginBottom: 14,
                       }}
                     >
-                      🏦 <strong>Bank Fund Movement:</strong> This amount was deposited into your bank account. It is tracked in your live bank balance and excluded from business expenses to avoid double counting.
+                      <strong>Bank Fund Movement:</strong> This amount was deposited into your bank account. It is tracked in your live bank balance and excluded from business expenses to avoid double counting.
                     </div>
                   )}
 
@@ -4041,7 +4939,7 @@ export default function ExpensesPage() {
                             href={`tel:${selectedExpenseForModal.phone}`}
                             style={{ color: "#2563eb", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
                           >
-                            📞 {selectedExpenseForModal.phone}
+                            Phone: {selectedExpenseForModal.phone}
                           </a>
                         ) : (
                           "—"
@@ -4574,12 +5472,19 @@ export default function ExpensesPage() {
                         executeExportSalaryExcel("bn", fmt);
                       } else if (excelLangModal.type === "comparison") {
                         executeExportComparisonExcel("bn", fmt);
+                      } else if (excelLangModal.type === "accounts_top_sheet") {
+                        if (fmt === "pdf") exportAccountsTopSheetPdf("bn");
+                        else exportAccountsTopSheetExcel("bn");
+                        setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+                      } else if (excelLangModal.type === "single_account_ledger") {
+                        if (fmt === "pdf") exportSingleAccountLedgerPdf(selectedAccountForLedger, accountLedgerExpenses, "bn");
+                        else exportSingleAccountLedgerExcel(selectedAccountForLedger, accountLedgerExpenses, "bn");
+                        setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
                       } else {
                         executeExportExcel("bn", fmt);
                       }
                     }}
                   >
-                    <span style={{ fontSize: "1.3rem", marginBottom: 4 }}>🇧🇩</span>
                     <strong style={{ fontSize: "0.95rem", color: "#1e3a8a" }}>Bangla</strong>
                     <span className="excel-lang-badge" style={{ background: "#dbeafe", color: "#1e40af" }}>
                       Smart Translation
@@ -4595,12 +5500,19 @@ export default function ExpensesPage() {
                         executeExportSalaryExcel("en", fmt);
                       } else if (excelLangModal.type === "comparison") {
                         executeExportComparisonExcel("en", fmt);
+                      } else if (excelLangModal.type === "accounts_top_sheet") {
+                        if (fmt === "pdf") exportAccountsTopSheetPdf("en");
+                        else exportAccountsTopSheetExcel("en");
+                        setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
+                      } else if (excelLangModal.type === "single_account_ledger") {
+                        if (fmt === "pdf") exportSingleAccountLedgerPdf(selectedAccountForLedger, accountLedgerExpenses, "en");
+                        else exportSingleAccountLedgerExcel(selectedAccountForLedger, accountLedgerExpenses, "en");
+                        setExcelLangModal((prev) => ({ ...prev, isOpen: false }));
                       } else {
                         executeExportExcel("en", fmt);
                       }
                     }}
                   >
-                    <span style={{ fontSize: "1.3rem", marginBottom: 4 }}>🇬🇧</span>
                     <strong style={{ fontSize: "0.95rem", color: "#0f172a" }}>English</strong>
                     <span className="excel-lang-badge" style={{ background: "#f1f5f9", color: "#475569" }}>
                       Original Data
@@ -4665,7 +5577,7 @@ function DayGroup({ day, list, onSelect, showHeader }) {
               </div>
               {x.phone && (
                 <span style={{ display: "block", fontSize: "0.75rem", color: "#64748b", marginTop: 2 }}>
-                  📞 {x.phone}
+                  Phone: {x.phone}
                 </span>
               )}
             </td>
