@@ -207,6 +207,9 @@ export default function WorkOrdersPage() {
       total_amount: "",
       advance_paid: "",
       due_amount: "",
+      raw_weight_issued: "",
+      finished_weight: "",
+      scrap_weight: "",
       items: [
         { name: "", quantity: 1, unit: "pcs", specs: "", note: "" },
       ],
@@ -1089,6 +1092,65 @@ export default function WorkOrdersPage() {
                     value={editingOrder.production_notes || ""}
                     onChange={(e) => setEditingOrder({ ...editingOrder, production_notes: e.target.value })}
                   />
+                </div>
+
+                {/* Workshop Material Tracking (Optional Option 3) */}
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 10,
+                    padding: "10px 14px",
+                    marginBottom: 14,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.76rem",
+                      fontWeight: 700,
+                      color: "#475569",
+                      textTransform: "uppercase",
+                      marginBottom: 8,
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    Raw Material Weight Tracking (Optional Job Costing)
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                    <div className="be-field-group">
+                      <label style={{ fontSize: "0.75rem" }}>Raw Issued (KG)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="0.0"
+                        className="be-input"
+                        value={editingOrder.raw_weight_issued || ""}
+                        onChange={(e) => setEditingOrder({ ...editingOrder, raw_weight_issued: e.target.value })}
+                      />
+                    </div>
+                    <div className="be-field-group">
+                      <label style={{ fontSize: "0.75rem" }}>Finished Output (KG)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="0.0"
+                        className="be-input"
+                        value={editingOrder.finished_weight || ""}
+                        onChange={(e) => setEditingOrder({ ...editingOrder, finished_weight: e.target.value })}
+                      />
+                    </div>
+                    <div className="be-field-group">
+                      <label style={{ fontSize: "0.75rem" }}>Scrap / Loss (KG)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="0.0"
+                        className="be-input"
+                        value={editingOrder.scrap_weight || ""}
+                        onChange={(e) => setEditingOrder({ ...editingOrder, scrap_weight: e.target.value })}
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 {/* Status & Financials */}

@@ -27,6 +27,7 @@ import {
   ChevronRightIcon,
   EditIcon,
   BarChartIcon,
+  PlusIcon,
 } from "@/lib/icons";
 import { getClientCache, setClientCache } from "@/lib/clientCache";
 
@@ -753,6 +754,39 @@ export default function ExpensesPage() {
     return clients.filter((c) => (c.name || "").toLowerCase().includes(q));
   }, [clients, editModalData?.paid_to]);
 
+  const filteredEditAccounts = useMemo(() => {
+    if (!editModalData) return expenseAccounts;
+    const q = (editModalData.paid_to || "").trim().toLowerCase();
+    if (!q) return expenseAccounts;
+    return expenseAccounts.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        (a.account_id && a.account_id.toLowerCase().includes(q)) ||
+        (a.phone && a.phone.includes(q))
+    );
+  }, [expenseAccounts, editModalData?.paid_to]);
+
+  function handleSelectEditModalAccount(acc) {
+    setEditModalData((prev) => ({
+      ...prev,
+      paid_to: acc.name,
+      phone: acc.phone || prev.phone,
+      account_id: acc.account_id,
+      sync_account: true,
+    }));
+    setShowModalDropdown(false);
+  }
+
+  function handleCreateNewAccountInEditModal(name) {
+    setEditModalData((prev) => ({
+      ...prev,
+      paid_to: name,
+      account_id: null,
+      sync_account: true,
+    }));
+    setShowModalDropdown(false);
+  }
+
   const matchedClient = useMemo(() => {
     const q = (form.paid_to || "").trim().toLowerCase();
     if (!q) return null;
@@ -851,9 +885,18 @@ export default function ExpensesPage() {
     }
   }
 
-  function startEditingModal() {
-    if (!selectedExpenseForModal) return;
-    const x = selectedExpenseForModal;
+  function startEditingModal(targetExpense = null, autoOpenDropdown = false) {
+    const x = targetExpense || selectedExpenseForModal;
+    if (!x) return;
+    setSelectedExpenseForModal(x);
+    const matchedAcc = expenseAccounts.find(
+      (a) =>
+        (x.account_id && a.account_id === x.account_id) ||
+        (x.paid_to && a.name.toLowerCase() === (x.paid_to || "").trim().toLowerCase())
+    );
+    const initialAccountId = x.account_id || matchedAcc?.account_id || null;
+    const initialSync = Boolean(x.account_id || matchedAcc || autoOpenDropdown);
+
     setEditModalData({
       id: x.id,
       expense_date: x.expense_date || today(),
@@ -866,9 +909,11 @@ export default function ExpensesPage() {
       from_bank: x.from_bank || "",
       to_bank: x.to_bank || "",
       note: x.note || "",
+      sync_account: initialSync,
+      account_id: initialAccountId,
     });
     setIsEditingModal(true);
-    setShowModalDropdown(false);
+    setShowModalDropdown(Boolean(autoOpenDropdown));
     setModalErr("");
   }
 
@@ -1002,6 +1047,8 @@ export default function ExpensesPage() {
           to_bank: isDepositCategory(editModalData.category) ? (editModalData.to_bank || editModalData.paid_to.trim()) : editModalData.to_bank,
           from_bank: isDepositCategory(editModalData.category) ? (editModalData.from_bank || "Cash Drawer") : editModalData.from_bank,
           amount,
+          sync_account: Boolean(editModalData.sync_account),
+          account_id: editModalData.sync_account ? (editModalData.account_id || null) : null,
         }),
       });
       if (res.status === 401) {
@@ -4535,13 +4582,7 @@ export default function ExpensesPage() {
                               className="be-btn be-btn-outline"
                               style={{ padding: "3px 9px", fontSize: "0.75rem", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}
                               onClick={() => {
-                                setSelectedExpenseForModal(x);
-                                setIsEditingModal(true);
-                                setEditModalData({
-                                  ...x,
-                                  amount: String(x.amount ?? ""),
-                                });
-                                setModalErr("");
+                                startEditingModal(x);
                               }}
                               title="Edit this expense entry"
                             >
@@ -4948,6 +4989,50 @@ export default function ExpensesPage() {
                     </div>
 
                     <div className="ex-detail-item">
+                      <div className="ex-detail-label">Expense Ledger Account</div>
+                      <div className="ex-detail-value" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        {(() => {
+                          const matched = expenseAccounts.find(
+                            (a) =>
+                              (selectedExpenseForModal.account_id && a.account_id === selectedExpenseForModal.account_id) ||
+                              (selectedExpenseForModal.paid_to && a.name.toLowerCase() === selectedExpenseForModal.paid_to.trim().toLowerCase())
+                          );
+                          if (selectedExpenseForModal.account_id || matched) {
+                            return (
+                              <span className="ex-acc-badge" style={{ fontSize: "0.78rem" }}>
+                                {selectedExpenseForModal.account_id || matched?.account_id} • {matched?.name || selectedExpenseForModal.paid_to}
+                              </span>
+                            );
+                          }
+                          return (
+                            <>
+                              <span style={{ color: "#94a3b8", fontSize: "0.82rem" }}>Not in Ledger</span>
+                              <button
+                                type="button"
+                                onClick={() => startEditingModal(selectedExpenseForModal, true)}
+                                style={{
+                                  padding: "3px 10px",
+                                  borderRadius: 6,
+                                  fontSize: "0.75rem",
+                                  fontWeight: 700,
+                                  background: "#fef2f2",
+                                  color: "var(--be-primary, #8b1515)",
+                                  border: "1px solid #fecaca",
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                }}
+                              >
+                                <PlusIcon size={12} /> Add to Ledger
+                              </button>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
+                    <div className="ex-detail-item">
                       <div className="ex-detail-label">Payment Method</div>
                       <div className="ex-detail-value">
                         {selectedExpenseForModal.payment_method || "Cash"}
@@ -5034,7 +5119,7 @@ export default function ExpensesPage() {
                           ? "Staff / Employee (Salary)"
                           : isEditSupplierPayment
                             ? "Supplier / Dealer Name"
-                            : "Paid To / Recipient"}
+                            : "Paid To / Expense Ledger Account"}
                     </label>
                     <div className="ex-paidto-wrap">
                       <input
@@ -5043,19 +5128,11 @@ export default function ExpensesPage() {
                         placeholder={
                           isDepositCategory(editModalData.category)
                             ? "Select bank (e.g. Islami Bank, City Bank...) or type bank name..."
-                            : isEditStaffExpense
-                              ? "Select staff (e.g. Shamim Accounts, Ikram...) or type name..."
-                              : isEditSupplierPayment
-                                ? "Select dealer / supplier (e.g. BSRM, Mujahid Dealer...) or type name..."
-                                : "Name of recipient, staff, or supplier"
+                            : "Select expense account, staff, supplier or type new name..."
                         }
                         value={editModalData.paid_to}
                         autoComplete="off"
-                        onFocus={() => {
-                          if (isDepositCategory(editModalData.category) || isEditStaffExpense || isEditSupplierPayment) {
-                            setShowModalDropdown(true);
-                          }
-                        }}
+                        onFocus={() => setShowModalDropdown(true)}
                         onChange={(e) => {
                           const val = e.target.value;
                           setEditModalData((prev) => {
@@ -5073,20 +5150,20 @@ export default function ExpensesPage() {
                                 nextTitle = val.trim() ? `Supplier Payment - ${val.trim()}` : "Supplier Payment";
                               }
                             }
+                            const matched = expenseAccounts.find((a) => a.name.toLowerCase() === val.trim().toLowerCase());
                             return {
                               ...prev,
                               paid_to: val,
                               to_bank: isDepositCategory(prev.category) ? val : prev.to_bank,
                               title: nextTitle,
+                              account_id: matched ? matched.account_id : prev.account_id,
                             };
                           });
-                          if (isDepositCategory(editModalData.category) || isEditStaffExpense || isEditSupplierPayment) {
-                            setShowModalDropdown(true);
-                          }
+                          setShowModalDropdown(true);
                         }}
                       />
-                      {showModalDropdown && (isDepositCategory(editModalData.category) || isEditStaffExpense || isEditSupplierPayment) && (
-                        <div className="ex-dropdown" style={{ maxHeight: 220 }}>
+                      {showModalDropdown && (
+                        <div className="ex-dropdown" style={{ maxHeight: 240 }}>
                           {isDepositCategory(editModalData.category) ? (
                             <>
                               <div className="ex-dropdown-header">
@@ -5109,72 +5186,99 @@ export default function ExpensesPage() {
                                 ))
                               )}
                             </>
-                          ) : isEditStaffExpense ? (
+                          ) : (
                             <>
                               <div className="ex-dropdown-header">
-                                Company Staff List ({filteredEditStaff.length})
+                                Expense Accounts &amp; Ledgers ({filteredEditAccounts.length})
                               </div>
-                              {filteredEditStaff.length === 0 ? (
+                              {filteredEditAccounts.length === 0 ? (
                                 <div className="ex-dropdown-empty">
-                                  No matching staff in list. You can add them below.
+                                  No saved account found. Type name to create.
                                 </div>
                               ) : (
-                                filteredEditStaff.map((st) => (
+                                filteredEditAccounts.map((acc) => (
                                   <div
-                                    key={st}
-                                    className={`ex-dropdown-item ${(editModalData.paid_to || "").trim().toLowerCase() === st.toLowerCase() ? "active" : ""}`}
-                                    onClick={() => handleSelectEditModalStaff(st)}
+                                    key={acc.account_id}
+                                    className={`ex-dropdown-item ${(editModalData.paid_to || "").trim().toLowerCase() === acc.name.toLowerCase() ? "active" : ""}`}
+                                    onClick={() => handleSelectEditModalAccount(acc)}
+                                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
                                   >
-                                    <span style={{ fontWeight: 600 }}>{st}</span>
-                                    <span className="ex-tag-staff">Staff</span>
+                                    <div>
+                                      <span style={{ fontWeight: 700, color: "#1e293b" }}>{acc.name}</span>
+                                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2, fontSize: "0.72rem", color: "#64748b" }}>
+                                        <span className="ex-acc-badge">{acc.account_id}</span>
+                                        {acc.phone && <span>Phone: {acc.phone}</span>}
+                                        {acc.category && <span style={{ color: "#0369a1" }}>• {acc.category}</span>}
+                                      </div>
+                                    </div>
+                                    <div style={{ textAlign: "right" }}>
+                                      <div style={{ fontWeight: 700, fontSize: "0.82rem", color: "var(--be-primary, #8b1515)" }}>
+                                        ৳ {fmt(acc.total_paid || 0)}
+                                      </div>
+                                      <div style={{ fontSize: "0.7rem", color: "#94a3b8" }}>{acc.total_entries || 0} entries</div>
+                                    </div>
                                   </div>
                                 ))
                               )}
                               {(editModalData.paid_to || "").trim() &&
-                                !allStaff.some(
-                                  (s) => s.toLowerCase() === (editModalData.paid_to || "").trim().toLowerCase()
+                                !expenseAccounts.some(
+                                  (a) => a.name.toLowerCase() === (editModalData.paid_to || "").trim().toLowerCase()
                                 ) && (
                                   <div
                                     className="ex-dropdown-item"
                                     style={{
-                                      background: "#fdf2f8",
-                                      color: "#be185d",
-                                      borderTop: "1px dashed #fbcfe8",
-                                      fontWeight: 600,
+                                      background: "#fef2f2",
+                                      color: "#991b1b",
+                                      borderTop: "1px dashed #fca5a5",
+                                      fontWeight: 700,
                                       cursor: "pointer",
                                     }}
-                                    onClick={() => handleAddCustomStaffToModal((editModalData.paid_to || "").trim())}
+                                    onClick={() => handleCreateNewAccountInEditModal((editModalData.paid_to || "").trim())}
                                   >
-                                    <span>+ Add "{(editModalData.paid_to || "").trim()}" as new Staff</span>
-                                    <span className="ex-tag-staff">New</span>
+                                    <span>+ Create "{(editModalData.paid_to || "").trim()}" as New Expense Ledger Account</span>
+                                    <span className="ex-acc-badge" style={{ background: "#fee2e2", color: "#991b1b", borderColor: "#fca5a5" }}>New Ledger</span>
                                   </div>
                                 )}
-                            </>
-                          ) : (
-                            <>
-                              <div className="ex-dropdown-header">
-                                Dealer &amp; Supplier List ({filteredEditClients.length})
-                              </div>
-                              {filteredEditClients.length === 0 ? (
-                                <div className="ex-dropdown-empty">
-                                  No matching dealer or supplier. You can still use this as a free name.
-                                </div>
-                              ) : (
-                                filteredEditClients.map((c) => {
-                                  const isSup = c.type === "supplier" || c.type === "client";
-                                  return (
+
+                              {isEditStaffExpense && (
+                                <>
+                                  <div className="ex-dropdown-header" style={{ marginTop: 8 }}>
+                                    Company Staff List ({filteredEditStaff.length})
+                                  </div>
+                                  {filteredEditStaff.map((st) => (
                                     <div
-                                      key={c.name}
-                                      className={`ex-dropdown-item ${editModalData.paid_to === c.name ? "active" : ""}`}
-                                      onClick={() => handleSelectEditModalClient(c)}
+                                      key={st}
+                                      className={`ex-dropdown-item ${(editModalData.paid_to || "").trim().toLowerCase() === st.toLowerCase() ? "active" : ""}`}
+                                      onClick={() => handleSelectEditModalStaff(st)}
                                     >
-                                      <span style={{ fontWeight: 600 }}>{c.name}</span>
-                                      <span className={isSup ? "ex-tag-supplier" : "ex-tag-dealer"}>
-                                        {isSup ? "Supplier" : "Dealer"}
-                                      </span>
+                                      <span style={{ fontWeight: 600 }}>{st}</span>
+                                      <span className="ex-tag-staff">Staff</span>
                                     </div>
-                                  );
-                                })
+                                  ))}
+                                </>
+                              )}
+
+                              {isEditSupplierPayment && (
+                                <>
+                                  <div className="ex-dropdown-header" style={{ marginTop: 8 }}>
+                                    Dealer &amp; Supplier List ({filteredEditClients.length})
+                                  </div>
+                                  {filteredEditClients.map((c) => {
+                                    const isSup = c.type === "supplier" || c.type === "client";
+                                    return (
+                                      <div
+                                        key={c.name}
+                                        className={`ex-dropdown-item ${editModalData.paid_to === c.name ? "active" : ""}`}
+                                        onClick={() => handleSelectEditModalClient(c)}
+                                      >
+                                        <span style={{ fontWeight: 600 }}>{c.name}</span>
+                                        <span className={isSup ? "ex-tag-supplier" : "ex-tag-dealer"}>
+                                          {isSup ? "Supplier" : "Dealer"}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </>
                               )}
                             </>
                           )}
@@ -5299,6 +5403,42 @@ export default function ExpensesPage() {
                     </div>
                   )}
 
+                  {/* Sync to Expense Ledger Account Checkbox */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 14px",
+                      borderRadius: 10,
+                      background: editModalData.sync_account ? "rgba(139, 21, 21, 0.05)" : "#f8fafc",
+                      border: editModalData.sync_account ? "1px solid rgba(139, 21, 21, 0.25)" : "1px solid #e2e8f0",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", margin: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(editModalData.sync_account)}
+                        onChange={(e) => setEditModalData((prev) => ({ ...prev, sync_account: e.target.checked }))}
+                        style={{ width: 17, height: 17, accentColor: "var(--be-primary, #8b1515)", cursor: "pointer" }}
+                      />
+                      <div>
+                        <span style={{ fontSize: "0.86rem", fontWeight: 700, color: editModalData.sync_account ? "var(--be-primary, #8b1515)" : "#475569" }}>
+                          Sync to Expense Ledger Account
+                        </span>
+                        <p style={{ margin: 0, fontSize: "0.74rem", color: "#64748b" }}>
+                          Maintains an individual ledger record with statement downloads and balance tracking.
+                        </p>
+                      </div>
+                    </label>
+                    {editModalData.sync_account && (
+                      <span className="ex-acc-badge" style={{ fontSize: "0.75rem", padding: "3px 8px" }}>
+                        {editModalData.account_id || "Auto-create ID"}
+                      </span>
+                    )}
+                  </div>
+
                   <div>
                     <label className="be-label" style={{ fontSize: "0.8rem", fontWeight: 600 }}>Note / Remarks</label>
                     <input
@@ -5345,6 +5485,36 @@ export default function ExpensesPage() {
                     >
                       Close
                     </button>
+                    {(() => {
+                      const matched = expenseAccounts.find(
+                        (a) =>
+                          (selectedExpenseForModal.account_id && a.account_id === selectedExpenseForModal.account_id) ||
+                          (selectedExpenseForModal.paid_to && a.name.toLowerCase() === selectedExpenseForModal.paid_to.trim().toLowerCase())
+                      );
+                      if (!selectedExpenseForModal.account_id && !matched) {
+                        return (
+                          <button
+                            type="button"
+                            style={{
+                              background: "linear-gradient(135deg, #8b1515, #991b1b)",
+                              color: "#ffffff",
+                              border: "none",
+                              padding: "8px 16px",
+                              borderRadius: 8,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                            onClick={() => startEditingModal(selectedExpenseForModal, true)}
+                          >
+                            <PlusIcon size={14} /> Add to Ledger
+                          </button>
+                        );
+                      }
+                      return null;
+                    })()}
                     <button
                       type="button"
                       style={{
@@ -5359,7 +5529,7 @@ export default function ExpensesPage() {
                         alignItems: "center",
                         gap: 6,
                       }}
-                      onClick={startEditingModal}
+                      onClick={() => startEditingModal(selectedExpenseForModal)}
                     >
                       <EditIcon size={14} /> Edit Expense
                     </button>

@@ -8,12 +8,14 @@ function resolveTarget(pathname) {
   if (is("/quotation-generator")) return { page: "quotation", api: false };
   if (is("/purchase") || is("/bill-calculator")) return { page: "calculator", api: false };
   if (is("/sales") || is("/bill-entry")) return { page: "bill_entry", api: false };
+  if (is("/stock") || is("/inventory")) return { page: "calculator", api: false };
   if (is("/work-orders")) return { page: "bill_entry", api: false };
   if (is("/expense") || is("/expenses")) return { page: "expenses", api: false };
   if (is("/staff")) return { page: "staff", api: false };
   if (is("/admin") || is("/api/admin")) return { page: "admin", api: pathname.startsWith("/api/") };
   if (is("/api/all-entries")) return { page: "all_entries", api: true };
   if (is("/api/entries") || is("/api/clients")) return { page: "calculator", api: true };
+  if (is("/api/stock") || is("/api/inventory")) return { page: "calculator", api: true };
   if (is("/api/bill-entry") || is("/api/customers")) return { page: "bill_entry", api: true };
   if (is("/api/work-orders")) return { page: "bill_entry", api: true };
   if (is("/api/expenses")) return { page: "expenses", api: true };
@@ -103,24 +105,38 @@ export const config = {
     "/sales/:path*",
     "/bill-entry",
     "/bill-entry/:path*",
+    "/stock",
+    "/stock/:path*",
+    "/inventory",
+    "/inventory/:path*",
     "/expense",
     "/expense/:path*",
     "/expenses",
     "/expenses/:path*",
     "/staff",
     "/staff/:path*",
+    "/work-orders",
+    "/work-orders/:path*",
+    "/all-entries",
+    "/all-entries/:path*",
     "/admin",
     "/admin/:path*",
     "/api/entries",
     "/api/entries/:path*",
     "/api/clients",
     "/api/clients/:path*",
+    "/api/stock",
+    "/api/stock/:path*",
     "/api/bill-entry",
     "/api/bill-entry/:path*",
     "/api/customers",
     "/api/customers/:path*",
     "/api/expenses",
     "/api/expenses/:path*",
+    "/api/work-orders",
+    "/api/work-orders/:path*",
+    "/api/all-entries",
+    "/api/all-entries/:path*",
     "/api/staff",
     "/api/staff/:path*",
     "/api/admin",

@@ -493,11 +493,16 @@ export default function Home() {
         totalAmt += st;
         hasAmt = true;
       }
-      const wtVal = it.quantity !== undefined && it.quantity !== "" ? it.quantity : it.weight;
-      const wt = parseFloat(wtVal);
-      if (!isNaN(wt)) {
-        totalWt += wt;
-        hasWt = true;
+      const u = (it.unit || "pcs").toLowerCase().trim();
+      const qVal = it.quantity !== undefined && it.quantity !== "" ? parseFloat(it.quantity) : (it.weight !== "" ? parseFloat(it.weight) : null);
+      if (qVal != null && !isNaN(qVal)) {
+        if (u === "kg") {
+          totalWt += qVal;
+          hasWt = true;
+        } else if (u === "ton") {
+          totalWt += qVal * 1000;
+          hasWt = true;
+        }
       }
     });
 
@@ -571,17 +576,47 @@ export default function Home() {
     const cleanItems =
       form.type === "bill" && Array.isArray(form.items)
         ? form.items
-            .map((it) => ({
-              name: (it.name || "").trim(),
-              weight: it.weight !== "" ? parseFloat(it.weight) || 0 : null,
-              rate: it.rate !== "" ? parseFloat(it.rate) || 0 : null,
-              subtotal: it.subtotal !== "" ? parseFloat(it.subtotal) || 0 : null,
-            }))
-            .filter((it) => it.name || it.weight || it.rate || it.subtotal)
+            .map((it) => {
+              const qVal = it.quantity !== undefined && it.quantity !== ""
+                ? parseFloat(it.quantity)
+                : (it.weight !== undefined && it.weight !== "" ? parseFloat(it.weight) : null);
+              const u = (it.unit || "pcs").trim();
+              let itemWeight = it.weight !== undefined && it.weight !== "" ? parseFloat(it.weight) : null;
+              if (itemWeight == null && qVal != null) {
+                const uLower = u.toLowerCase();
+                if (uLower === "kg") itemWeight = qVal;
+                else if (uLower === "ton") itemWeight = qVal * 1000;
+              }
+              return {
+                name: (it.name || "").trim(),
+                quantity: isNaN(qVal) ? null : qVal,
+                unit: u,
+                weight: isNaN(itemWeight) ? null : itemWeight,
+                rate: it.rate !== "" ? parseFloat(it.rate) || 0 : null,
+                subtotal: it.subtotal !== "" ? parseFloat(it.subtotal) || 0 : null,
+              };
+            })
+            .filter((it) => it.name || it.quantity != null || it.weight != null || it.rate || it.subtotal)
         : null;
+
+    let computedWeight = form.weight !== "" && form.weight != null ? parseFloat(form.weight) : null;
+    if ((computedWeight == null || isNaN(computedWeight)) && cleanItems && cleanItems.length > 0) {
+      let sumKg = 0;
+      let hasItemWeight = false;
+      cleanItems.forEach((it) => {
+        if (it.weight != null && !isNaN(it.weight)) {
+          sumKg += it.weight;
+          hasItemWeight = true;
+        }
+      });
+      if (hasItemWeight) {
+        computedWeight = Math.round(sumKg * 1000) / 1000;
+      }
+    }
 
     const payload = {
       ...form,
+      weight: isNaN(computedWeight) ? null : computedWeight,
       client_name: selectedClient.trim(),
       client_type: getEntityType(selectedClient),
       items: cleanItems && cleanItems.length > 0 ? cleanItems : null,
@@ -626,14 +661,21 @@ export default function Home() {
     const b = selectedEntryForModal;
     const hasItems = b.type === "bill" && Array.isArray(b.items) && b.items.length > 0;
     const items = hasItems
-      ? b.items.map((it) => ({
-          name: it.name || "",
-          quantity: it.quantity !== undefined && it.quantity !== "" ? String(it.quantity) : (it.weight != null ? String(it.weight) : ""),
-          unit: it.unit || (it.weight ? "kg" : "pcs"),
-          weight: it.weight != null ? String(it.weight) : "",
-          rate: it.rate != null ? String(it.rate) : "",
-          subtotal: it.subtotal != null ? String(it.subtotal) : "",
-        }))
+      ? b.items.map((it) => {
+          let q = it.quantity !== undefined && it.quantity !== "" && it.quantity !== null ? String(it.quantity) : (it.weight != null && it.weight !== "" ? String(it.weight) : "");
+          let u = it.unit && it.unit.trim() !== "" ? it.unit.trim() : "";
+          if (!q && it.rate && it.subtotal && parseFloat(it.rate) > 0) {
+            q = String(Math.round((parseFloat(it.subtotal) / parseFloat(it.rate)) * 1000) / 1000);
+          }
+          return {
+            name: it.name || "",
+            quantity: q,
+            unit: u || "pcs",
+            weight: it.weight != null && it.weight !== "" ? String(it.weight) : (u.toLowerCase() === "kg" ? q : ""),
+            rate: it.rate != null ? String(it.rate) : "",
+            subtotal: it.subtotal != null ? String(it.subtotal) : "",
+          };
+        })
       : (b.type === "bill" ? [emptyItem()] : []);
 
     setEditModalData({
@@ -726,19 +768,48 @@ export default function Home() {
     const cleanItems =
       editModalData.type === "bill" && Array.isArray(editModalData.items)
         ? editModalData.items
-            .map((it) => ({
-              name: (it.name || "").trim(),
-              weight: it.weight !== "" ? parseFloat(it.weight) || 0 : null,
-              rate: it.rate !== "" ? parseFloat(it.rate) || 0 : null,
-              subtotal: it.subtotal !== "" ? parseFloat(it.subtotal) || 0 : null,
-            }))
-            .filter((it) => it.name || it.weight || it.rate || it.subtotal)
+            .map((it) => {
+              const qVal = it.quantity !== undefined && it.quantity !== ""
+                ? parseFloat(it.quantity)
+                : (it.weight !== undefined && it.weight !== "" ? parseFloat(it.weight) : null);
+              const u = (it.unit || "pcs").trim();
+              let itemWeight = it.weight !== undefined && it.weight !== "" ? parseFloat(it.weight) : null;
+              if (itemWeight == null && qVal != null) {
+                const uLower = u.toLowerCase();
+                if (uLower === "kg") itemWeight = qVal;
+                else if (uLower === "ton") itemWeight = qVal * 1000;
+              }
+              return {
+                name: (it.name || "").trim(),
+                quantity: isNaN(qVal) ? null : qVal,
+                unit: u,
+                weight: isNaN(itemWeight) ? null : itemWeight,
+                rate: it.rate !== "" ? parseFloat(it.rate) || 0 : null,
+                subtotal: it.subtotal !== "" ? parseFloat(it.subtotal) || 0 : null,
+              };
+            })
+            .filter((it) => it.name || it.quantity != null || it.weight != null || it.rate || it.subtotal)
         : null;
+
+    let computedWeight = editModalData.weight !== "" && editModalData.weight != null ? parseFloat(editModalData.weight) : null;
+    if ((computedWeight == null || isNaN(computedWeight)) && cleanItems && cleanItems.length > 0) {
+      let sumKg = 0;
+      let hasItemWeight = false;
+      cleanItems.forEach((it) => {
+        if (it.weight != null && !isNaN(it.weight)) {
+          sumKg += it.weight;
+          hasItemWeight = true;
+        }
+      });
+      if (hasItemWeight) {
+        computedWeight = Math.round(sumKg * 1000) / 1000;
+      }
+    }
 
     const payload = {
       ...editModalData,
       amount,
-      weight: editModalData.weight !== "" ? parseFloat(editModalData.weight) || null : null,
+      weight: isNaN(computedWeight) ? null : computedWeight,
       items: cleanItems && cleanItems.length > 0 ? cleanItems : null,
       labour_cost: editModalData.labour_cost !== "" ? parseFloat(editModalData.labour_cost) || null : null,
       transport_cost: editModalData.transport_cost !== "" ? parseFloat(editModalData.transport_cost) || null : null,
@@ -873,10 +944,11 @@ export default function Home() {
         '"Type"',
         '"Bill No"',
         '"Item / Description"',
-        '"Weight (KG)"',
+        '"Quantity"',
+        '"Unit"',
         '"Rate (BDT)"',
         '"Sub-Total (BDT)"',
-        '"Bill Total (BDT)"',
+        '"Total Bill (BDT)"',
         '"From Bank / Account"',
         '"To Bank / Account"',
         '"Paid Amount (BDT)"',
@@ -893,13 +965,21 @@ export default function Home() {
       if (hasItems) {
         // Output each item as its own separate row
         r.items.forEach((it) => {
+          let itemQtyVal = it.quantity !== undefined && it.quantity !== "" && it.quantity !== null
+            ? Number(it.quantity)
+            : (it.weight != null && it.weight !== "" ? Number(it.weight) : null);
+          let itemUnit = it.unit && it.unit.trim() !== "" ? it.unit.trim() : null;
+          if (itemQtyVal == null && it.rate && it.subtotal && parseFloat(it.rate) > 0) {
+            itemQtyVal = Math.round((parseFloat(it.subtotal) / parseFloat(it.rate)) * 1000) / 1000;
+          }
           csvRows.push([
             slCounter++,
             `"${r.entry_date || ""}"`,
             `"${r.type === "bill" ? "Bill (Item)" : "Payment"}"`,
             `"${r.bill_no || "-"}"`,
             `"${(it.name || "Item").replace(/"/g, '""')}"`,
-            it.quantity !== undefined && it.quantity !== "" ? Number(it.quantity).toFixed(2) : (it.weight != null && it.weight !== "" ? Number(it.weight).toFixed(2) : `"-"`),
+            itemQtyVal != null ? itemQtyVal.toFixed(2) : `"-"`,
+            `"${itemUnit || "-"}"`,
             it.rate != null && it.rate !== "" ? Number(it.rate).toFixed(2) : `"-"`,
             it.subtotal != null && it.subtotal !== "" ? fmtNum(it.subtotal) : `"-"`,
             `"-"`,
@@ -919,6 +999,7 @@ export default function Home() {
             `"Labour Charge"`,
             `"${r.bill_no || "-"}"`,
             `"Labour / Handling Charge"`,
+            `"-"`,
             `"-"`,
             `"-"`,
             fmtNum(r.labour_cost),
@@ -941,6 +1022,7 @@ export default function Home() {
             `"Transport / Freight Cost"`,
             `"-"`,
             `"-"`,
+            `"-"`,
             fmtNum(r.transport_cost),
             `"-"`,
             `"${r.from_bank || "-"}"`,
@@ -959,6 +1041,7 @@ export default function Home() {
           `"${r.bill_no || "-"}"`,
           `"TOTAL (All Items & Charges)"`,
           r.weight != null ? Number(r.weight).toFixed(2) : `"-"`,
+          r.weight != null ? `"kg"` : `"-"`,
           `"-"`,
           `"-"`,
           fmtNum(r.amount),
@@ -975,10 +1058,11 @@ export default function Home() {
           `"${r.entry_date || ""}"`,
           `"${r.type === "bill" ? "Bill" : "Payment"}"`,
           `"${r.bill_no || "-"}"`,
-          `"-"`,
+          `"${(r.note || (r.type === "bill" ? "General Bill" : "Payment")).replace(/"/g, '""')}"`,
           r.weight != null ? Number(r.weight).toFixed(2) : `"-"`,
+          r.weight != null ? `"kg"` : `"-"`,
           `"-"`,
-          `"-"`,
+          r.type === "bill" ? fmtNum(r.amount) : `"-"`,
           r.type === "bill" ? fmtNum(r.amount) : `"-"`,
           `"${r.from_bank || "-"}"`,
           `"${r.to_bank || "-"}"`,
@@ -991,6 +1075,7 @@ export default function Home() {
 
     csvRows.push([]);
     csvRows.push([
+      '""',
       '""',
       '""',
       '""',
@@ -1071,7 +1156,8 @@ export default function Home() {
           "Type",
           "Bill No",
           "Item / Description",
-          "Weight (KG)",
+          "Quantity",
+          "Unit",
           "Rate (BDT)",
           "Sub-Total (BDT)",
           "Bill Total (BDT)",
@@ -1088,13 +1174,21 @@ export default function Home() {
         const hasItems = r.type === "bill" && Array.isArray(r.items) && r.items.length > 0;
         if (hasItems) {
           r.items.forEach((it) => {
+            let itemQtyVal = it.quantity !== undefined && it.quantity !== "" && it.quantity !== null
+              ? Number(it.quantity)
+              : (it.weight != null && it.weight !== "" ? Number(it.weight) : null);
+            let itemUnit = it.unit && it.unit.trim() !== "" ? it.unit.trim() : null;
+            if (itemQtyVal == null && it.rate && it.subtotal && parseFloat(it.rate) > 0) {
+              itemQtyVal = Math.round((parseFloat(it.subtotal) / parseFloat(it.rate)) * 1000) / 1000;
+            }
             wsData.push([
               sl++,
               r.entry_date || "",
               "Bill (Item)",
               r.bill_no || "-",
               it.name || "Item",
-              it.quantity !== undefined && it.quantity !== "" ? Number(it.quantity).toFixed(2) : (it.weight != null && it.weight !== "" ? Number(it.weight).toFixed(2) : "-"),
+              itemQtyVal != null ? itemQtyVal.toFixed(2) : "-",
+              itemUnit || "-",
               it.rate != null && it.rate !== "" ? Number(it.rate).toFixed(2) : "-",
               it.subtotal != null && it.subtotal !== "" ? fmtNum(it.subtotal) : "-",
               "-",
@@ -1113,6 +1207,7 @@ export default function Home() {
               "Labour Charge",
               r.bill_no || "-",
               "Labour / Handling Charge",
+              "-",
               "-",
               "-",
               fmtNum(r.labour_cost),
@@ -1134,6 +1229,7 @@ export default function Home() {
               "Transport / Freight Cost",
               "-",
               "-",
+              "-",
               fmtNum(r.transport_cost),
               "-",
               r.from_bank || "-",
@@ -1151,6 +1247,7 @@ export default function Home() {
             r.bill_no || "-",
             "TOTAL (All Items & Charges)",
             r.weight != null ? Number(r.weight).toFixed(2) : "-",
+            r.weight != null ? "kg" : "-",
             "-",
             "-",
             fmtNum(r.amount),
@@ -1166,10 +1263,11 @@ export default function Home() {
             r.entry_date || "",
             r.type === "bill" ? "Bill" : "Payment",
             r.bill_no || "-",
-            "-",
+            r.note || (r.type === "bill" ? "General Bill" : "Payment"),
             r.weight != null ? Number(r.weight).toFixed(2) : "-",
+            r.weight != null ? "kg" : "-",
             "-",
-            "-",
+            r.type === "bill" ? fmtNum(r.amount) : "-",
             r.type === "bill" ? fmtNum(r.amount) : "-",
             r.from_bank || "-",
             r.to_bank || "-",
@@ -1182,6 +1280,7 @@ export default function Home() {
 
       wsData.push([]);
       wsData.push([
+        "",
         "",
         "",
         "",
@@ -1406,13 +1505,19 @@ export default function Home() {
         const hasItems = r.type === "bill" && Array.isArray(r.items) && r.items.length > 0;
         if (hasItems) {
           r.items.forEach((it) => {
+            let itemQtyVal = it.quantity !== undefined && it.quantity !== "" && it.quantity !== null
+              ? Number(it.quantity)
+              : (it.weight != null && it.weight !== "" ? Number(it.weight) : null);
+            if (itemQtyVal == null && it.rate && it.subtotal && parseFloat(it.rate) > 0) {
+              itemQtyVal = Math.round((parseFloat(it.subtotal) / parseFloat(it.rate)) * 1000) / 1000;
+            }
             wsData.push([
               sl++,
               r.entry_date || "",
               "Bill (Item)",
               r.bill_no || "-",
               it.name || "Item",
-              it.quantity !== undefined && it.quantity !== "" ? Number(it.quantity).toFixed(2) : (it.weight != null && it.weight !== "" ? Number(it.weight).toFixed(2) : "-"),
+              itemQtyVal != null ? itemQtyVal.toFixed(2) : "-",
               it.rate != null && it.rate !== "" ? Number(it.rate).toFixed(2) : "-",
               it.subtotal != null && it.subtotal !== "" ? fmtNum(it.subtotal) : "-",
               "-",
@@ -2128,10 +2233,11 @@ export default function Home() {
                   <tr>
                     <th style={{ width: "95px" }}>Date</th>
                     <th style={{ width: "95px" }}>Bill No.</th>
-                    <th style={{ minWidth: "150px" }}>Item Description</th>
-                    <th className="num" style={{ width: "90px" }}>Weight</th>
-                    <th className="num" style={{ width: "85px" }}>Rate</th>
-                    <th className="num" style={{ width: "100px" }}>Subtotal</th>
+                    <th style={{ minWidth: "150px" }}>Item / Description</th>
+                    <th className="num" style={{ width: "85px" }}>Quantity</th>
+                    <th style={{ width: "65px", textAlign: "center" }}>Unit</th>
+                    <th className="num" style={{ width: "95px" }}>Rate (BDT)</th>
+                    <th className="num" style={{ width: "110px" }}>Sub-Total (BDT)</th>
                     <th className="num" style={{ width: "115px" }}>Total Bill</th>
                     <th style={{ minWidth: "135px" }}>Payment Method</th>
                     <th className="num" style={{ width: "110px" }}>Payment</th>
@@ -2171,6 +2277,7 @@ export default function Home() {
                             </div>
                           </td>
                           <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
+                          <td style={{ verticalAlign: "top", textAlign: "center", color: "#94a3b8" }}>—</td>
                           <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
                           <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
                           <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
@@ -2201,6 +2308,12 @@ export default function Home() {
                         const isFirstItem = idx === 0;
                         const isLastItemOfBill = idx === items.length - 1;
                         const itemBorderBottom = isLastItemOfBill ? rowBorderBottom : "1px dashed #e2e8f0";
+
+                        let q = it.quantity !== undefined && it.quantity !== "" && it.quantity !== null ? it.quantity : null;
+                        let u = it.unit && it.unit.trim() !== "" ? it.unit.trim() : null;
+                        if (q == null && it.rate && it.subtotal && parseFloat(it.rate) > 0) {
+                          q = Math.round((parseFloat(it.subtotal) / parseFloat(it.rate)) * 1000) / 1000;
+                        }
 
                         return (
                           <tr
@@ -2242,9 +2355,10 @@ export default function Home() {
                               {it.name || "Item"}
                             </td>
                             <td className="num" style={{ verticalAlign: "top", borderBottom: itemBorderBottom }}>
-                              {it.quantity !== undefined && it.quantity !== ""
-                                ? `${fmt(it.quantity)} ${it.unit || "pcs"}`
-                                : (it.weight != null && it.weight !== "" ? `${fmt(it.weight)} kg` : "—")}
+                              {q != null ? fmt(q) : (it.weight != null && it.weight !== "" ? fmt(it.weight) : "—")}
+                            </td>
+                            <td style={{ verticalAlign: "top", textAlign: "center", color: u ? "#0f172a" : "#94a3b8", borderBottom: itemBorderBottom }}>
+                              {u || "—"}
                             </td>
                             <td className="num" style={{ verticalAlign: "top", borderBottom: itemBorderBottom }}>
                               {it.rate != null && it.rate !== "" ? `৳ ${fmt(it.rate)}` : "—"}
@@ -2339,7 +2453,10 @@ export default function Home() {
                           {r.note || "General Bill"}
                         </td>
                         <td className="num" style={{ verticalAlign: "top" }}>
-                          {r.weight != null ? `${fmt(r.weight)} kg` : "—"}
+                          {r.weight != null ? fmt(r.weight) : "—"}
+                        </td>
+                        <td style={{ verticalAlign: "top", textAlign: "center", color: "#64748b" }}>
+                          {r.weight != null ? "kg" : "—"}
                         </td>
                         <td className="num" style={{ verticalAlign: "top", color: "#94a3b8" }}>—</td>
                         <td className="num" style={{ verticalAlign: "top", fontWeight: 700 }}>৳ {fmt(r.amount)}</td>
@@ -2358,7 +2475,7 @@ export default function Home() {
                 {view.length > 0 && (
                   <tfoot>
                     <tr>
-                      <td colSpan={6} style={{ textAlign: "right", fontWeight: 700, textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.02em" }}>
+                      <td colSpan={7} style={{ textAlign: "right", fontWeight: 700, textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.02em" }}>
                         Total ({view.length} Entries):
                       </td>
                       <td className="num" style={{ fontWeight: 800, color: "#0f172a" }}>
