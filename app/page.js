@@ -88,6 +88,20 @@ const PAGES = [
     ),
   },
   {
+    key: "cash_book",
+    href: "/cash-book",
+    title: "Cash Book",
+    desc: "Cash flow register: Sales inflows, advances, dues & daily cash expenses.",
+    icon: (
+      <>
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <line x1="2" y1="10" x2="22" y2="10" />
+        <line x1="7" y1="15" x2="7.01" y2="15" />
+        <line x1="11" y1="15" x2="13" y2="15" />
+      </>
+    ),
+  },
+  {
     key: "all_entries",
     href: "/all-entries",
     title: "All Entries & Approvals",
@@ -227,27 +241,30 @@ export default function RootDashboardPage() {
           <div className="login-header-nav">
             <div className="login-brand">
               <div>
-                <h1 className="login-title">Management Portal</h1>
-                <p className="login-company">Business &amp; Accounts Management</p>
+                <h1 className="login-title">Online Games Portal</h1>
+                <p className="login-company">Gaming Network &amp; Server Operations</p>
               </div>
             </div>
           </div>
 
           <div className="login-body">
-            <div className="lock-icon-circle">
-              <Icon size={22}>
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            <div className="lock-icon-circle" title="Secure Game Gateway">
+              <Icon size={24}>
+                <line x1="6" y1="12" x2="10" y2="12" />
+                <line x1="8" y1="10" x2="8" y2="14" />
+                <line x1="15" y1="13" x2="15.01" y2="13" />
+                <line x1="18" y1="11" x2="18.01" y2="11" />
+                <rect x="2" y="6" width="20" height="12" rx="2" />
               </Icon>
             </div>
             <h2 className="login-prompt">Sign In</h2>
-            <p className="login-sub">Log in with your username and password to open your dashboard.</p>
+            <p className="login-sub">Sign in with your game account to access the network.</p>
 
-            <label htmlFor="dash-user" className="login-label">Username</label>
+            <label htmlFor="dash-user" className="login-label">Player ID / Username</label>
             <input
               id="dash-user"
               className="login-input"
-              placeholder="Enter username..."
+              placeholder="Enter player ID or username..."
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoFocus
@@ -269,7 +286,7 @@ export default function RootDashboardPage() {
 
             {logoutReason === "idle" && (
               <div style={{ background: "#fef3c7", border: "1px solid #fde68a", color: "#92400e", padding: "8px 12px", borderRadius: 8, fontSize: "0.82rem", fontWeight: 700, marginTop: 12, lineHeight: 1.4, textAlign: "left" }}>
-                Logged out due to 15 minutes of inactivity for data security.
+                Logged out due to 15 minutes of inactivity for network security.
               </div>
             )}
             {logoutReason === "closed" && (
@@ -295,7 +312,8 @@ export default function RootDashboardPage() {
     (p) =>
       isAdmin ||
       (user.permissions?.[p.key] || []).includes("view") ||
-      (p.key === "staff" && (user.permissions?.expenses || []).includes("view"))
+      (p.key === "staff" && (user.permissions?.expenses || []).includes("view")) ||
+      (p.key === "cash_book" && ((user.permissions?.expenses || []).includes("view") || (user.permissions?.sales || []).includes("view") || (user.permissions?.bill_entry || []).includes("view")))
   );
   const cards = isAdmin ? [...allowed, ADMIN_CARD] : allowed;
 

@@ -1259,11 +1259,14 @@ export default function AllEntriesAuditPage() {
 
   const editCustomerDueAdvance = useMemo(() => {
     if (!editCustomerModalData) return 0;
+    const l = parseFloat(editCustomerModalData.labour_charge) || 0;
+    const t = parseFloat(editCustomerModalData.transport_cost) || 0;
+    const d = parseFloat(editCustomerModalData.discount) || 0;
     const p = Math.round((parseFloat(editCustomerModalData.client_payment) || 0) * 100) / 100;
-    let dueAdv = Math.round((editCustomerTotalBill - p) * 100) / 100;
+    let dueAdv = Math.round((editCustomerItemsSubtotal + l + t - d - p) * 100) / 100;
     if (Math.abs(dueAdv) < 0.005) dueAdv = 0;
     return dueAdv;
-  }, [editCustomerModalData, editCustomerTotalBill]);
+  }, [editCustomerModalData, editCustomerItemsSubtotal]);
 
   const editCustomerRunningBalance = useMemo(() => {
     if (!selectedCustomerBillForModal) return 0;

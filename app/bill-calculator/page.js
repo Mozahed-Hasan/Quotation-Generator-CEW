@@ -166,10 +166,63 @@ const ITEM_PRESETS = [
   "Cork Sheet",
 ];
 
+export function detectUnitByName(name) {
+  if (!name) return "";
+  const n = name.toLowerCase().trim();
+  if (
+    n.includes("profile") ||
+    n.includes("insulation") ||
+    n.includes("cork") ||
+    (n.includes("sheet") && n.includes("profile"))
+  ) {
+    return "sft";
+  }
+  if (
+    n.includes("tua") ||
+    n.includes("drain") ||
+    n.includes("gutter") ||
+    n.includes("flashing") ||
+    n.includes("side cap") ||
+    n.includes("ridge") ||
+    n.includes("channel")
+  ) {
+    return "rft";
+  }
+  if (
+    n.includes("sheet") ||
+    n.includes("coil") ||
+    n.includes("angle") ||
+    n.includes("pipe") ||
+    n.includes("iron") ||
+    n.includes("steel") ||
+    n.includes("plate") ||
+    n.includes("rod") ||
+    n.includes("beam") ||
+    n.includes("bar") ||
+    n.includes("shutter")
+  ) {
+    return "kg";
+  }
+  if (
+    n.includes("screw") ||
+    n.includes("nut") ||
+    n.includes("bolt") ||
+    n.includes("tape") ||
+    n.includes("gum") ||
+    n.includes("cap") ||
+    n.includes("rivet") ||
+    n.includes("silicon") ||
+    n.includes("washer")
+  ) {
+    return "pcs";
+  }
+  return "";
+}
+
 const emptyItem = () => ({
   name: "",
   quantity: "",
-  unit: "pcs",
+  unit: "",
   weight: "",
   rate: "",
   subtotal: "",
@@ -493,7 +546,10 @@ export default function Home() {
         totalAmt += st;
         hasAmt = true;
       }
-      const u = (it.unit || "pcs").toLowerCase().trim();
+      let u = (it.unit || "").toLowerCase().trim();
+      if (!u && it.name) {
+        u = detectUnitByName(it.name);
+      }
       const qVal = it.quantity !== undefined && it.quantity !== "" ? parseFloat(it.quantity) : (it.weight !== "" ? parseFloat(it.weight) : null);
       if (qVal != null && !isNaN(qVal)) {
         if (u === "kg") {
@@ -521,6 +577,16 @@ export default function Home() {
     const nextItems = (form.items || []).map((it, i) => {
       if (i !== idx) return it;
       const updated = { ...it, [field]: val };
+      if (field === "name" && (!updated.unit || updated._unitAuto)) {
+        const detected = detectUnitByName(val);
+        if (detected) {
+          updated.unit = detected;
+          updated._unitAuto = true;
+        }
+      }
+      if (field === "unit") {
+        updated._unitAuto = false;
+      }
       if (field === "quantity" || field === "weight" || field === "rate") {
         const qVal = field === "quantity" ? val : (updated.quantity !== undefined && updated.quantity !== "" ? updated.quantity : updated.weight);
         const q = parseFloat(qVal);
@@ -580,7 +646,10 @@ export default function Home() {
               const qVal = it.quantity !== undefined && it.quantity !== ""
                 ? parseFloat(it.quantity)
                 : (it.weight !== undefined && it.weight !== "" ? parseFloat(it.weight) : null);
-              const u = (it.unit || "pcs").trim();
+              let u = (it.unit || "").trim();
+              if (!u && it.name) {
+                u = detectUnitByName(it.name);
+              }
               let itemWeight = it.weight !== undefined && it.weight !== "" ? parseFloat(it.weight) : null;
               if (itemWeight == null && qVal != null) {
                 const uLower = u.toLowerCase();
@@ -590,7 +659,7 @@ export default function Home() {
               return {
                 name: (it.name || "").trim(),
                 quantity: isNaN(qVal) ? null : qVal,
-                unit: u,
+                unit: u || null,
                 weight: isNaN(itemWeight) ? null : itemWeight,
                 rate: it.rate !== "" ? parseFloat(it.rate) || 0 : null,
                 subtotal: it.subtotal !== "" ? parseFloat(it.subtotal) || 0 : null,
@@ -664,13 +733,16 @@ export default function Home() {
       ? b.items.map((it) => {
           let q = it.quantity !== undefined && it.quantity !== "" && it.quantity !== null ? String(it.quantity) : (it.weight != null && it.weight !== "" ? String(it.weight) : "");
           let u = it.unit && it.unit.trim() !== "" ? it.unit.trim() : "";
+          if (!u && it.name) {
+            u = detectUnitByName(it.name);
+          }
           if (!q && it.rate && it.subtotal && parseFloat(it.rate) > 0) {
             q = String(Math.round((parseFloat(it.subtotal) / parseFloat(it.rate)) * 1000) / 1000);
           }
           return {
             name: it.name || "",
             quantity: q,
-            unit: u || "pcs",
+            unit: u,
             weight: it.weight != null && it.weight !== "" ? String(it.weight) : (u.toLowerCase() === "kg" ? q : ""),
             rate: it.rate != null ? String(it.rate) : "",
             subtotal: it.subtotal != null ? String(it.subtotal) : "",
@@ -701,6 +773,16 @@ export default function Home() {
     setEditModalData((prev) => {
       const nextItems = [...prev.items];
       const current = { ...nextItems[index], [field]: value };
+      if (field === "name" && (!current.unit || current._unitAuto)) {
+        const detected = detectUnitByName(value);
+        if (detected) {
+          current.unit = detected;
+          current._unitAuto = true;
+        }
+      }
+      if (field === "unit") {
+        current._unitAuto = false;
+      }
       if (field === "quantity" || field === "weight" || field === "rate") {
         const qVal = field === "quantity" ? value : (current.quantity !== undefined && current.quantity !== "" ? current.quantity : current.weight);
         const q = parseFloat(qVal);
@@ -772,7 +854,10 @@ export default function Home() {
               const qVal = it.quantity !== undefined && it.quantity !== ""
                 ? parseFloat(it.quantity)
                 : (it.weight !== undefined && it.weight !== "" ? parseFloat(it.weight) : null);
-              const u = (it.unit || "pcs").trim();
+              let u = (it.unit || "").trim();
+              if (!u && it.name) {
+                u = detectUnitByName(it.name);
+              }
               let itemWeight = it.weight !== undefined && it.weight !== "" ? parseFloat(it.weight) : null;
               if (itemWeight == null && qVal != null) {
                 const uLower = u.toLowerCase();
@@ -782,7 +867,7 @@ export default function Home() {
               return {
                 name: (it.name || "").trim(),
                 quantity: isNaN(qVal) ? null : qVal,
-                unit: u,
+                unit: u || null,
                 weight: isNaN(itemWeight) ? null : itemWeight,
                 rate: it.rate !== "" ? parseFloat(it.rate) || 0 : null,
                 subtotal: it.subtotal !== "" ? parseFloat(it.subtotal) || 0 : null,
@@ -1488,7 +1573,8 @@ export default function Home() {
           "Type",
           "Bill No",
           "Item / Description",
-          "Weight (KG)",
+          "Quantity",
+          "Unit",
           "Rate (BDT)",
           "Sub-Total (BDT)",
           "Bill Total (BDT)",
@@ -1508,6 +1594,7 @@ export default function Home() {
             let itemQtyVal = it.quantity !== undefined && it.quantity !== "" && it.quantity !== null
               ? Number(it.quantity)
               : (it.weight != null && it.weight !== "" ? Number(it.weight) : null);
+            let itemUnit = it.unit && it.unit.trim() !== "" ? it.unit.trim() : null;
             if (itemQtyVal == null && it.rate && it.subtotal && parseFloat(it.rate) > 0) {
               itemQtyVal = Math.round((parseFloat(it.subtotal) / parseFloat(it.rate)) * 1000) / 1000;
             }
@@ -1518,6 +1605,7 @@ export default function Home() {
               r.bill_no || "-",
               it.name || "Item",
               itemQtyVal != null ? itemQtyVal.toFixed(2) : "-",
+              itemUnit || "-",
               it.rate != null && it.rate !== "" ? Number(it.rate).toFixed(2) : "-",
               it.subtotal != null && it.subtotal !== "" ? fmtNum(it.subtotal) : "-",
               "-",
@@ -1536,6 +1624,7 @@ export default function Home() {
             r.bill_no || "-",
             "-",
             r.weight != null ? Number(r.weight).toFixed(2) : "-",
+            r.weight != null ? "kg" : "-",
             "-",
             "-",
             r.type === "bill" ? fmtNum(r.amount) : "-",
@@ -2003,7 +2092,7 @@ export default function Home() {
                         <input
                           type="text"
                           className="item-input"
-                          placeholder="e.g. pcs"
+                          placeholder="e.g. kg / pcs / sft"
                           list="purchase-unit-presets"
                           value={item.unit || ""}
                           onChange={(e) => handleItemChange(idx, "unit", e.target.value)}
@@ -2088,16 +2177,17 @@ export default function Home() {
                   ))}
                 </datalist>
                 <datalist id="purchase-unit-presets">
-                  <option value="pcs" />
                   <option value="kg" />
-                  <option value="meter" />
-                  <option value="box" />
-                  <option value="nos" />
                   <option value="sft" />
+                  <option value="rft" />
+                  <option value="pcs" />
                   <option value="ton" />
-                  <option value="set" />
+                  <option value="meter" />
                   <option value="bundle" />
+                  <option value="box" />
                   <option value="coil" />
+                  <option value="nos" />
+                  <option value="set" />
                 </datalist>
               </div>
             )}

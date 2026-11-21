@@ -5,7 +5,7 @@ import SessionSecurityGuard from "./SessionSecurityGuard";
 
 export const metadata = {
   title: "Online Games | Portal",
-  description: "Management Portal: Quotation Generator, Purchase, Sales, Expense and Admin Control Panel.",
+  description: "Online Gaming Network, Server Operations and Account Hub.",
 };
 
 export default function RootLayout({ children }) {

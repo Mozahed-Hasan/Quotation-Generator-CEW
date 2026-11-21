@@ -922,7 +922,7 @@ export default function BillEntryPage() {
   const totalBill = Math.round(Math.max(0, itemsSubtotal + labour + transport - discount) * 100) / 100;
 
   const payment = Math.round((parseFloat(form.client_payment) || 0) * 100) / 100;
-  let dueAdvance = Math.round((totalBill - payment) * 100) / 100; // > 0 => Due, < 0 => Advance
+  let dueAdvance = Math.round((itemsSubtotal + labour + transport - discount - payment) * 100) / 100; // > 0 => Due, < 0 => Advance
   if (Math.abs(dueAdvance) < 0.005) dueAdvance = 0;
 
   // In Words Conversions
@@ -959,8 +959,12 @@ export default function BillEntryPage() {
       return;
     }
 
-    if (discount > itemsSubtotal + labour + transport) {
-      setErr("Discount cannot exceed the gross bill total.");
+    const pastDue = (customerPastStats && customerPastStats.netDue > 0) ? customerPastStats.netDue : 0;
+    const maxDiscount = itemsSubtotal + labour + transport + pastDue;
+    if (discount > maxDiscount && maxDiscount > 0) {
+      setErr(pastDue > 0
+        ? `Discount cannot exceed total payable (Bill ৳${formatNum(itemsSubtotal + labour + transport)} + Previous Due ৳${formatNum(pastDue)}).`
+        : "Discount cannot exceed the gross bill total.");
       return;
     }
 
@@ -1431,8 +1435,14 @@ export default function BillEntryPage() {
       setModalEditErr("Charges, discount, and payment cannot be negative.");
       return;
     }
-    if (d > editSubtotal + l + t) {
-      setModalEditErr("Discount cannot exceed the gross bill total.");
+    const currentPrevDue = (selectedBillForModal && Number(selectedBillForModal.prevBalance) > 0)
+      ? Number(selectedBillForModal.prevBalance)
+      : 0;
+    const maxDiscount = editSubtotal + l + t + currentPrevDue;
+    if (d > maxDiscount && maxDiscount > 0) {
+      setModalEditErr(currentPrevDue > 0
+        ? `Discount cannot exceed total payable (Bill ৳${editSubtotal + l + t} + Previous Due ৳${currentPrevDue}).`
+        : "Discount cannot exceed the gross bill total.");
       return;
     }
 
@@ -1442,7 +1452,7 @@ export default function BillEntryPage() {
 
     try {
       const computedTotalBill = Math.round(Math.max(0, editSubtotal + l + t - d) * 100) / 100;
-      let computedDueAdvance = Math.round((computedTotalBill - p) * 100) / 100;
+      let computedDueAdvance = Math.round((editSubtotal + l + t - d - p) * 100) / 100;
       if (Math.abs(computedDueAdvance) < 0.005) computedDueAdvance = 0;
 
       const payload = {
@@ -4967,16 +4977,17 @@ export default function BillEntryPage() {
         let editDueThisBill = 0;
         let editAdvanceThisBill = 0;
         let editDueReceived = 0;
-        if (editTotalBill - editPayment >= 0.005) {
-          const shortfall = Math.round((editTotalBill - editPayment) * 100) / 100;
+        const editGross = editItemsSubtotal + editLabour + editTransport;
+        if (editGross - editDiscount - editPayment >= 0.005) {
+          const shortfall = Math.round((editGross - editDiscount - editPayment) * 100) / 100;
           if (prev <= -0.005) {
             const availAdv = Math.abs(prev);
             editDueThisBill = availAdv >= shortfall ? 0 : Math.round((shortfall - availAdv) * 100) / 100;
           } else {
             editDueThisBill = shortfall;
           }
-        } else if (editPayment - editTotalBill >= 0.005) {
-          const excess = Math.round((editPayment - editTotalBill) * 100) / 100;
+        } else if (editPayment + editDiscount - editGross >= 0.005) {
+          const excess = Math.round((editPayment + editDiscount - editGross) * 100) / 100;
           if (prev >= 0.005) {
             editDueReceived = Math.round(Math.min(prev, excess) * 100) / 100;
             editAdvanceThisBill = Math.round(Math.max(0, excess - prev) * 100) / 100;
@@ -4984,7 +4995,7 @@ export default function BillEntryPage() {
             editAdvanceThisBill = excess;
           }
         }
-        let editDueAdvance = Math.round((editTotalBill - editPayment) * 100) / 100;
+        let editDueAdvance = Math.round((editGross - editDiscount - editPayment) * 100) / 100;
         if (Math.abs(editDueAdvance) < 0.005) editDueAdvance = 0;
         let editRunningBalance = Math.round(((prev || 0) + editDueAdvance) * 100) / 100;
         if (Math.abs(editRunningBalance) < 0.005) editRunningBalance = 0;

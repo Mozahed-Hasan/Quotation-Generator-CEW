@@ -519,6 +519,147 @@
   border-top: 1px solid #e2e8f0;
 }
 
+/* Monthly Attendance Matrix Styling */
+.st-matrix-wrap {
+  background: #ffffff;
+  border: 1px solid var(--be-border, #e2e8f0);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.st-matrix-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  position: relative;
+}
+
+.st-matrix-table {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.78rem;
+}
+
+.st-matrix-table th,
+.st-matrix-table td {
+  border-right: 1px solid #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: center;
+  padding: 6px 4px;
+}
+
+.st-matrix-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+  font-size: 0.73rem;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.st-matrix-table th.sticky-staff,
+.st-matrix-table td.sticky-staff {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: #ffffff;
+  text-align: left;
+  padding: 8px 12px;
+  border-right: 2px solid #cbd5e1;
+  min-width: 160px;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.st-matrix-table th.sticky-staff {
+  z-index: 15;
+  background: #f8fafc;
+}
+
+.st-matrix-table th.friday-col,
+.st-matrix-table td.friday-col {
+  background: #f8fafc;
+}
+
+.st-matrix-table th.today-col {
+  background: #eff6ff;
+  color: #1e40af;
+  border-bottom: 2px solid #2563eb;
+}
+
+.st-matrix-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+.st-matrix-table tr:hover td.sticky-staff {
+  background-color: #f1f5f9;
+}
+
+.st-matrix-table tfoot td {
+  background: #f1f5f9;
+  font-weight: 800;
+  color: #0f172a;
+  border-top: 2px solid #94a3b8;
+}
+
+.st-matrix-table tfoot td.sticky-staff {
+  background: #f1f5f9;
+}
+
+/* Status Badges */
+.st-att-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.st-att-badge.present {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.st-att-badge.half {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.st-att-badge.absent {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.st-att-badge.empty {
+  color: #cbd5e1;
+  font-weight: 500;
+}
+
+.st-matrix-ot-tag {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-radius: 3px;
+  margin-top: 2px;
+  padding: 1px 2px;
+  line-height: 1;
+}
+
 @media print {
   .st-no-print,
   .be-header,
